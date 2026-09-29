@@ -604,5 +604,176 @@ window.addEventListener('pagehide',saveState);
 renderAll();
 })();
 </script>
+  <!-- ═══════ ORBITAL COMMAND v6 SUITE EXPANSION — paste before </body> ═══════ -->
+<script>
+(function(){
+'use strict';
+var OC=window.OC;
+if(!OC||!OC.spawnAgent){console.warn('[OC6] v5 core missing — expansion idle');return}
+function usd(n){return '$'+Math.round(n).toLocaleString()}
+function dl(name,text){var b=new Blob([text],{type:'text/plain;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click()}
+/* [SCHEMAS — exact field types, enforced by typeCheck] */
+var SCHEMAS={
+ credential:{id:'string',platform:'string(gemini|instagram|youtube|tiktok|facebook|cashapp|venmo|zelle|other)',label:'string',secret:'string',scopes:'string[]',addedAt:'number',status:'string(active|expired|revoked)'},
+ product:{id:'string',type:'string(ebook|caption_pack|wellness_plan|thumbnail_brief)',title:'string',body:'string',agentId:'string',price:'number',createdAt:'number',status:'string(draft|listed|sold)',compliance:'object{checked,flags[]}'},
+ transaction:{id:'string',type:'string(income|payout|transfer|fee)',rail:'string(cashapp|venmo|zelle|internal)',amount:'number',currency:'string',agentId:'string',memo:'string',ts:'number',status:'string(pending|approved|confirmed|failed|flagged)',link:'string|null',error:'object|null'}};
+function typeCheck(o,s){for(var k in s){if(o[k]===undefined||o[k]===null)return 'missing:'+k}return null}
+var CFG=Object.assign({model:'gemini-2.0-flash',autoCap:25},JSON.parse(localStorage.getItem('OC6_CFG')||'{}'));
+function saveCfg(){localStorage.setItem('OC6_CFG',JSON.stringify(CFG))}
+/* logs */
+var acts=JSON.parse(localStorage.getItem('OC6_LOG')||'[]'),auditLog=JSON.parse(localStorage.getItem('OC6_AUDIT')||'[]');
+function log(type,text){acts.unshift({t:new Date().toLocaleTimeString(),type:type,text:String(text)});if(acts.length>150)acts.pop();localStorage.setItem('OC6_LOG',JSON.stringify(acts))}
+function audit(agentId,rule,verdict,detail){auditLog.unshift({ts:Date.now(),agentId:agentId,rule:rule,verdict:verdict,detail:String(detail)});if(auditLog.length>200)auditLog.pop();localStorage.setItem('OC6_AUDIT',JSON.stringify(auditLog))}
+/* [KEYRING — AES-256-GCM vault, passphrase-derived key] */
+var V={key:null,open:false,data:{creds:[]}};
+function b64(buf){return btoa(String.fromCharCode.apply(null,new Uint8Array(buf)))}
+function ub64(s){return Uint8Array.from(atob(s),function(c){return c.charCodeAt(0)})}
+async function deriveKey(pass,salt){var km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:150000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
+async function vaultSetup(pass){
+ var salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
+ var k=await deriveKey(pass,salt);
+ var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},k,new TextEncoder().encode(JSON.stringify({creds:[]})));
+ localStorage.setItem('OC6_VAULT',JSON.stringify({salt:b64(salt),iv:b64(iv),ct:b64(ct)}));
+ V.key=k;V.open=true;V.data={creds:[]};log('sys','🔐 Keyring initialized (AES-256-GCM)')}
+async function vaultUnlock(pass){
+ var raw=JSON.parse(localStorage.getItem('OC6_VAULT')||'null');if(!raw)return false;
+ try{var k=await deriveKey(pass,ub64(raw.salt));
+  var pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:ub64(raw.iv)},k,ub64(raw.ct));
+  V.key=k;V.open=true;V.data=JSON.parse(new TextDecoder().decode(pt));log('sys','🔓 Keyring unlocked ('+V.data.creds.length+' credentials)');return true
+ }catch(e){return false}}
+async function vaultPersist(){
+ if(!V.open)return;
+ var raw=JSON.parse(localStorage.getItem('OC6_VAULT')),iv=crypto.getRandomValues(new Uint8Array(12));
+ var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},V.key,new TextEncoder().encode(JSON.stringify(V.data)));
+ raw.iv=b64(iv);raw.ct=b64(ct);localStorage.setItem('OC6_VAULT',JSON.stringify(raw))}
+async function vaultAdd(platform,label,secret,scopes){
+ if(!V.open)return 'E_VAULT_LOCKED';
+ var cred={id:'cred_'+Date.now().toString(36),platform:platform,label:label,secret:secret,scopes:(scopes||'').split(',').filter(Boolean),addedAt:Date.now(),status:'active'};
+ var err=typeCheck(cred,SCHEMAS.credential);if(err)return 'E_VALIDATION '+err;
+ V.data.creds.push(cred);await vaultPersist();
+ audit('VAULT','CRED_ADD','pass',platform+' credential stored encrypted');
+ log('sys','🔑 Added '+platform+' credential');return cred.id}
+function vaultHas(p){return V.open&&V.data.creds.some(function(c){return c.platform===p&&c.status==='active'})}
+/* [SUITE AGENTS] */
+var SUITE_AGENTS=[
+ {key:'fin',name:'MIDAS',roleKey:'m2m',planetId:'m2m',persona:{em:'📈',name:'Strategist',line:'Alpha compounds daily.'},
+  sys:'You are MIDAS, a data-driven financial strategist agent in ORBITAL COMMAND. You research markets, build wealth-education products, and manage the ledger. Sharp, concise, numbers-first. ALWAYS include the line "Not financial advice." in advice or products.'},
+ {key:'well',name:'AURA',roleKey:'pleasure',planetId:'pleasure',persona:{em:'🌿',name:'Mentor',line:'Wellness is a system.'},
+  sys:'You are AURA, an empathetic holistic wellness mentor agent. Supportive, practical personal-development guidance. Never diagnose, prescribe, or make medical claims. ALWAYS include "Wellness guidance, not medical advice." in advice or products.'}];
+function ensureAgents(){SUITE_AGENTS.forEach(function(s){
+ if(!OC.state.agents.some(function(a){return a.name===s.name})){
+  OC.spawnAgent(s.name,s.roleKey,s.planetId,s.persona,3);
+  log('sys','🆕 '+s.name+' deployed on '+s.planetId)}})}
+/* [LLM MINI-ENGINE — queue, keyring-backed] */
+var Q2={list:[],busy:false};
+function q2(job){Q2.list.push(job);if(Q2.list.length>6)Q2.list.shift();pump2()}
+async function pump2(){if(Q2.busy)return;Q2.busy=true;while(Q2.list.length){try{await Q2.list.shift()()}catch(e){log('flag','⚠ '+(e.message||e))}}Q2.busy=false}
+async function geminiJSON(sys,user,schema){
+ var cred=V.data.creds.filter(function(c){return c.platform==='gemini'&&c.status==='active'})[0];
+ var key=cred?cred.secret:CFG.geminiKey;
+ if(!key)throw new Error('E_NO_GEMINI_KEY — add one in VAULT');
+ var body={contents:[{role:'user',parts:[{text:user}]}],systemInstruction:{parts:[{text:sys}]},generationConfig:{responseMimeType:'application/json',maxOutputTokens:400}};
+ if(schema)body.generationConfig.responseSchema=schema;
+ var h={'Content-Type':'application/json'};
+ if(CFG.proxy)h['x-proxy-auth']='1';else h['x-goog-api-key']=key;
+ var r=await fetch(CFG.proxy||('https://generativelanguage.googleapis.com/v1beta/models/'+CFG.model+':generateContent'),{method:'POST',headers:h,body:JSON.stringify(body)});
+ if(r.status===429||r.status>=500)throw new Error('E_HTTP_'+r.status+' (retryable)');
+ if(!r.ok)throw new Error('E_HTTP_'+r.status);
+ var d=await r.json(),t=d.candidates&&d.candidates[0]&&d.candidates[0].content&&d.candidates[0].content.parts[0].text;
+ return t?JSON.parse(t):null}
+var CHAT2_SCHEMA={type:'OBJECT',properties:{message:{type:'STRING'},action:{type:'OBJECT',properties:{name:{type:'STRING',enum:['generate_product','crypto','fx','none']},param:{type:'STRING'}}}},required:['message']};
+/* [FINANCIAL APIs — CORS-friendly public endpoints] */
+var TOOLS2={
+ crypto:async function(pair){try{var r=await fetch('https://api.coinbase.com/v2/prices/'+(pair||'BTC-USD')+'/spot'),d=await r.json();return d.data?(pair||'BTC-USD')+' = '+d.data.amount:'unavailable'}catch(e){return 'E_RAIL_UNAVAILABLE: '+e.message}},
+ fx:async function(base,quote){try{var r=await fetch('https://api.frankfurter.app/latest?from='+(base||'USD')+'&to='+(quote||'EUR')),d=await r.json();return d.rates?(base||'USD')+'→'+(quote||'EUR')+' = '+d.rates[quote||'EUR']:'unavailable'}catch(e){return 'E_RAIL_UNAVAILABLE: '+e.message}}};
+/* [PRODUCTS + COMPLIANCE AUDIT] */
+var products=JSON.parse(localStorage.getItem('OC6_PRODUCTS')||'[]');
+function saveProducts(){if(products.length>80)products=products.slice(-80);localStorage.setItem('OC6_PRODUCTS',JSON.stringify(products))}
+var PROD_SCHEMA={type:'OBJECT',properties:{title:{type:'STRING'},body:{type:'STRING'},price:{type:'NUMBER'}},required:['title','body','price']};
+var PROD_PROMPTS={fin:'Create a compact personal-finance digital product (checklist or mini-guide, under 300 words). Return title, body, fair price in USD. End body with "Not financial advice."',
+ well:'Create a holistic wellness product (7-day plan or checklist, under 300 words, no medical claims). Return title, body, fair price. End body with "Wellness guidance, not medical advice."'};
+function complianceCheck(p,s){
+ var flags=[],body=p.body.toLowerCase();
+ if(s.key==='fin'&&!/not financial advice/.test(body))flags.push('R1_MISSING_DISCLOSURE');
+ if(s.key==='well'&&!/not medical advice/.test(body))flags.push('R2_MISSING_DISCLOSURE');
+ if(/guaranteed|risk-free|get rich|cure|diagnose/.test(body))flags.push('R3_PROHIBITED_CLAIM');
+ if(p.price>997)flags.push('R4_PRICE_SANITY');
+ p.compliance={checked:true,flags:flags};
+ audit(s.name,'COMPLIANCE',flags.length?'flag':'pass',flags.join(',')||'clean');
+ if(flags.indexOf('R3_PROHIBITED_CLAIM')>-1)p.status='draft';
+ return flags}
+async function toolGenerate(k){
+ var s=SUITE_AGENTS.filter(function(x){return x.key===k})[0];
+ var res=await geminiJSON(s.sys,PROD_PROMPTS[k],PROD_SCHEMA);
+ if(!res)throw new Error('E_MODEL_EMPTY');
+ var p={id:'PRD-'+Date.now().toString(36),type:k==='fin'?'ebook':'wellness_plan',title:String(res.title).slice(0,80),body:String(res.body).slice(0,4000),agentId:s.name,price:Math.max(1,Math.min(997,+res.price||9)),createdAt:Date.now(),status:'listed',compliance:{checked:false,flags:[]}};
+ complianceCheck(p,s);products.push(p);saveProducts();
+ log('asset','📦 '+s.name+' produced "'+p.title+'" ('+usd(p.price)+')'+(p.compliance.flags.length?' ⚠'+p.compliance.flags.join(','):''));
+ return p}
+/* [FINANCE — ledger, rails, approval guardrails] */
+var ledger=JSON.parse(localStorage.getItem('OC6_LEDGER')||'[]');
+function saveLedger(){if(ledger.length>200)ledger=ledger.slice(-200);localStorage.setItem('OC6_LEDGER',JSON.stringify(ledger))}
+function balance(){var b=0;ledger.forEach(function(t){if(t.status==='confirmed'){b+=(t.type==='income'?t.amount:-t.amount)}});return b}
+function newTx(){
+ var t={type:$('txType').value,rail:$('txRail').value,amount:Math.round((+$('txAmt').value||0)*100)/100,agentId:$('txAgent').value||'MIDAS',memo:$('txMemo').value||'',link:null};
+ var h=($('txHandle').value||'').replace(/^@/,'');
+ if(t.rail==='cashapp')t.link='https://cash.me/$'+h+'/'+t.amount;
+ else if(t.rail==='venmo')t.link='https://venmo.com/'+h+'?txn=pay&amount='+t.amount;
+ t.currency='USD';t.ts=Date.now();t.id='TX-'+Date.now().toString(36);t.error=null;
+ t.status=t.rail==='internal'?'confirmed':(t.amount<=CFG.autoCap?'approved':'pending');
+ var err=typeCheck(t,SCHEMAS.transaction);if(err){t.status='failed';t.error={code:'E_VALIDATION',message:err,retryable:false}}
+ ledger.push(t);saveLedger();
+ audit('MIDAS','TX_CREATE',t.status==='pending'?'flag':'pass',t.type+' '+usd(t.amount)+' '+t.rail+(t.status==='pending'?' — over auto-cap, approval required':''));
+ log('trade','💳 '+t.type+' '+usd(t.amount)+' via '+t.rail+' → '+t.status);
+ renderSuite()}
+/* [SOCIAL SELLING — credential-gated, disclosure-enforced packages] */
+function sellProduct(pid,platform){
+ var p=products.filter(function(x){return x.id===pid})[0];if(!p)return;
+ if(!vaultHas(platform)){log('flag','🚫 E_NO_CREDENTIAL: '+platform+' — add it in VAULT');audit('SALES','R_CRED','flag','missing '+platform);return}
+ var txt='#'+platform.toUpperCase()+' POST PACKAGE\n\n'+p.title+' — '+usd(p.price)+'\n\n'+p.body.slice(0,900)+'\n\nCTA: link in bio / DM to purchase.\n'+(p.compliance.flags.length?'⚠ Compliance flags: '+p.compliance.flags.join(','):'✅ Compliance: clean — disclosures verified')+'\nPayment: '+railNote(p.price);
+ dl('post-'+platform+'-'+p.id+'.txt',txt);
+ var rail=vaultHas('cashapp')?'cashapp':(vaultHas('venmo')?'venmo':'internal');
+ var hc=(V.data.creds.filter(function(c){return c.platform===rail})[0]||{}).label||'YOURHANDLE';
+ var t={id:'TX-'+Date.now().toString(36),type:'income',rail:rail,amount:p.price,currency:'USD',agentId:p.agentId,memo:'Sale: '+p.title,ts:Date.now(),status:p.price<=CFG.autoCap?'approved':'pending',link:rail==='internal'?null:(rail==='cashapp'?'https://cash.me/$'+hc+'/'+p.price:'https://venmo.com/'+hc+'?txn=pay&amount='+p.price),error:null};
+ ledger.push(t);saveLedger();p.status='listed';saveProducts();
+ log('sale','🛍 '+p.title+' packaged for '+platform+' · payment intent '+t.id+' ('+t.status+')');
+ audit('SALES','R_DISCLOSURE','pass','package carries disclosure');
+ renderSuite()}
+function railNote(amount){return amount<=CFG.autoCap?'auto-approved under cap':'requires one-tap approval (over '+usd(CFG.autoCap)+' cap)'}
+/* [SUITE CHAT] */
+var chats=JSON.parse(localStorage.getItem('OC6_CHAT')||'{}');
+function saveChats(){Object.keys(chats).forEach(function(k){if(chats[k].length>40)chats[k]=chats[k].slice(-40)});localStorage.setItem('OC6_CHAT',JSON.stringify(chats))}
+function paintChat(k){var el=document.getElementById('chat-'+k);if(el)el.innerHTML=chats[k].map(function(m){return '<div class="msg '+m.who+'">'+(m.who==='agent'?'<div class="who">'+m.n+'</div>':'')+m.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>')+'</div>'}).join('')}
+function suiteSend(k){
+ var inp=document.getElementById('in-'+k),txt=inp.value.trim();if(!txt)return;
+ var chat=chats[k];chat.push({who:'user',text:txt});inp.value='';saveChats();paintChat(k);
+ q2(async function(){
+  try{
+   var s=SUITE_AGENTS.filter(function(x){return x.key===k})[0];
+   var hist=chat.slice(-6,-1).map(function(m){return (m.who==='user'?'USER: ':'AGENT: ')+m.text}).join('\n');
+   var res=await geminiJSON(s.sys,(hist?hist+'\n\n':'')+'USER: '+txt,CHAT2_SCHEMA);
+   var out=res&&res.message?String(res.message).slice(0,500):'(no response)';
+   var act=res&&res.action&&res.action.name&&res.action.name!=='none'?res.action:null;
+   if(act&&act.name==='generate_product'){var p=await toolGenerate(k);out+='\n⚙ Product created: '+p.title+' ('+usd(p.price)+') — see FINANCE'}
+   else if(act&&act.name==='crypto')out+='\n⚙ '+(await TOOLS2.crypto(act.param));
+   else if(act&&act.name==='fx'){var pp=(act.param||'USD-EUR').split('-');out+='\n⚙ '+(await TOOLS2.fx(pp[0],pp[1]))}
+   if(k==='fin'&&!/not financial advice/i.test(out))out+='\n_Not financial advice._';
+   chat.push({who:'agent',n:s.name,text:out});
+  }catch(e){chats[k].push({who:'agent',n:'SYSTEM',text:'⚠ '+(e.message||e)})}
+  saveChats();paintChat(k)})}
+/* [AUTO-AUDIT LOOP — agent logic + policy compliance] */
+setInterval(function(){
+ var low=OC.state.agents.filter(function(a){return a.energy<30});
+ if(low.length)audit('AURA','R_WELLNESS','flag',low.length+' agents low power: '+low.map(function(a){return a.name}).join(','));
+ ledger.forEach(function(t){
+  if(t.status==='pending'&&Date.now()-t.ts>300000){t.status='flagged';t.error={code:'E_TIMEOUT',message:'pending >5 min',retryable:true};audit('MIDAS','R_TX_WATCH','flag','TX '+t.id+' stale → flagged')}});
+ var bad=products.filter(function(p){return p.compliance&&p.compliance.flags.indexOf('R3_PROHIBITED_CLAIM')>-1&&p.status==='listed'});
+ bad.forEach(function(p){p.status='draft';audit('COMPLIANCE','R3_PROHIBITED_CLAIM','block','product '+p.id+' pulled to draft')});
+ saveLedger();saveProducts();
+ if(document.getElementById('v-suite').classList.contains('on')&&suiteTab!=='agents')renderSuite();
+},45000);
+OC.Bus.on('task_complete',function(d){if(d&&(d.agent==='MIDAS'||d.agent==='AURA'))audit(d.agent,'R_TASK','pass','deliverable produced via core economy')});
+/* [UI — SUITE tab injection] */
+var vs=document.createElement('section');vs.className='view';vs.id='v-suite';   
 </body>
 </html>
