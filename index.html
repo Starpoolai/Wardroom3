@@ -901,7 +901,7 @@ function suiteSend(k){
  q2(async function(){
   try{
    var s=SUITE.filter(function(x){return x.key===k})[0];
-   var hist=chat.slice(-6,-1).map(function(m){return (m.who==='user'?'USER: ':'AGENT: ')+m.text}).join('\n');
+   var hist=chat.slice(-6).map(function(m){return (m.who==='user'?'USER: ':'AGENT: ')+m.text}).join('\n');
    var res=await geminiJSON(sysFor(s),(hist?hist+'\n\n':'')+'USER: '+txt,CHAT2_SCHEMA);
    var out=res&&res.message?String(res.message).slice(0,500):'(no response)';
    var act=res&&res.action&&res.action.name&&res.action.name!=='none'?res.action:null;
