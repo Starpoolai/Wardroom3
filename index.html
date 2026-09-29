@@ -549,4 +549,60 @@ function sendChat(){
   chatBusy=true;$('btnSend').disabled=true;
   enqueue(async function(){
    try{
-    var hist=state.chats[a.id].slice(-7,-1).map(function(m){return (m.who
+    var hist=state.chats[a.id].slice(-7,-1).map(function(m){return (m.who==='user'?'USER: ':'AGENT: ')+m.text}).join('\n');
+    var res=await callLLM(AGENT_SYSTEM(a),(hist?hist+'\n\n':'')+'USER: '+txt,CHAT_SCHEMA);
+    var msg=res&&res.message?String(res.message).slice(0,600):null;
+    var tc=res&&res.tool_call&&res.tool_call.name&&res.tool_call.name!=='none'?res.tool_call:null;
+    if(tc){var out=await execAction(a,tc.name,tc.param);msg=(msg?msg+'\n':'')+'⚙ '+out}
+    state.chats[a.id].push({who:'agent',n:a.name,text:msg||fallbackReply(a,txt)});
+   }catch(e){
+    state.chats[a.id].push({who:'agent',n:a.name,text:'⚠ AI core unreachable — local fallback: '+fallbackReply(a,txt)});
+   }finally{
+    capChats(a);chatBusy=false;$('btnSend').disabled=false;renderChat();
+   }},true);
+ }else{
+  setTimeout(function(){state.chats[a.id].push({who:'agent',n:a.name,text:fallbackReply(a,txt)});capChats(a);renderChat()},400);
+ }}
+$('btnSend').onclick=sendChat;
+$('chatText').addEventListener('keydown',function(e){if(e.key==='Enter')sendChat()});
+function refreshBadges(){
+ var live=(AI_CONFIG.apiKey||AI_CONFIG.proxy)&&!AI_CONFIG.simMode;
+ $('btnSimMode').textContent=live?'🤖 AI: LIVE':'⏸ LOCAL';
+ $('btnSimMode').className='api-badge'+(live?'':' off')}
+$('btnConfigAPI').onclick=function(){
+ var k=prompt('Gemini API key (stored on this device only; blank = local fallback):',AI_CONFIG.apiKey);
+ if(k!==null){
+  AI_CONFIG.apiKey=k.trim();localStorage.setItem('OC_API_KEY',AI_CONFIG.apiKey);
+  var px=prompt('Optional PROXY_ENDPOINT — backend URL that forwards to Gemini (key stays server-side; blank = direct):',AI_CONFIG.proxy);
+  if(px!==null){AI_CONFIG.proxy=px.trim();localStorage.setItem('OC_PROXY',AI_CONFIG.proxy)}
+  feed('sys',(AI_CONFIG.apiKey||AI_CONFIG.proxy)?'🔑 AI engine configured — press 🤖 to go LIVE.':'⚠ Local fallback mode.')}
+ refreshBadges()};
+$('btnSimMode').onclick=function(){
+ if(!AI_CONFIG.apiKey&&!AI_CONFIG.proxy){feed('flag','⚠ Set an API key or proxy first (🔑).');return}
+ AI_CONFIG.simMode=!AI_CONFIG.simMode;
+ feed('sys',AI_CONFIG.simMode?'⏸ SIM MODE — local heuristics only (zero API spend).':'🤖 LIVE — Director batches + agent tool-calls enabled.');
+ refreshBadges()};
+window.OC={version:'5.0',AI_CONFIG:AI_CONFIG,Bus:Bus,
+ get state(){return state},
+ spawnAgent:spawnAgent,execAction:execAction,tools:TOOLS,feed:feed,
+ saveState:saveState,travel:requestTravel,audit:runAudit,
+ economy:{invAdd:invAdd,invTake:invTake,price:m2mPrice,dist:orbDist,inventory:function(){return state.inv}}};
+if(!loadState()){
+ seedInv();
+ var START=[['NOVA-7','m2m','m2m','hustler'],['CIPHER-X','m2m','m2m','renegade'],
+  ['QUILL','ebook','ebook','professor'],['VANTA','social','social','renegade'],
+  ['ORACLE-X','rnd','rnd','professor'],['ATLAS','command','command','diplomat'],
+  ['LEDGER','market','market','hustler'],['MUSE-9','influencer','influencer','diplomat']];
+ START.forEach(function(s){spawnAgent(s[0],s[1],s[2],PERSONAS.filter(function(p){return p.id===s[3]})[0],3)});
+ feed('sys','🛰 ORBITAL COMMAND v5 initialized — 8 agents, 8 worlds, live supply chain.');
+ feed('sys','💡 Euclidean transit costs fuel · blocks create traits · 🔑/proxy to go LIVE.');
+}else feed('sys','💾 State restored — roster rebound, XP & traits migrated.');
+refreshBadges();sizeMap();
+setInterval(function(){if(!document.hidden)simTick()},1000);
+document.addEventListener('visibilitychange',function(){if(document.hidden)saveState()});
+window.addEventListener('pagehide',saveState);
+renderAll();
+})();
+</script>
+</body>
+</html>
