@@ -1552,7 +1552,100 @@ window.OC7={X:X,transferTask:transferTask,grantTool:grantTool,addCred:addCred,ad
  queue:X.queue,releaseItem:releaseItem,rejectItem:rejectItem,ownerCommand:ownerCommand,
  ingestTelemetry:ingestTelemetry,ingestQueue:ingestQueue,notifyBadge:notifyBadge};
 })();
-
+<!-- ═══ V6 · KNOWLEDGE ARCHIVE TAB (registry + ebook integrity + sync) ═══ -->
+<script>
+(function(){
+'use strict';
+var OC=window.OC;if(!OC)return;
+var REG_N=25;   /* registry mirrored from agents/knowledge_empathy_protocol.py */
+var ebooks=JSON.parse(localStorage.getItem('OC9_EBOOKS')||'[]');
+function save(){localStorage.setItem('OC9_EBOOKS',JSON.stringify(ebooks.slice(-40)))}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function verify(eb){
+ try{
+  var body=JSON.stringify(Object.keys(eb).filter(function(k){return k!=='system_telemetry'}).sort().reduce(function(o,k){o[k]=eb[k];return o},{}));
+  return (btoa(unescape(encodeURIComponent(body)))===eb.system_telemetry.data_integrity.hash)?'hash-compat':'hash-verify-manual';
+ }catch(e){return 'invalid'}
+}
+window.OCP={
+ render:function(){
+  return '<div class="sect">KNOWLEDGE REGISTRY — 25 foundational assets (5W+H indexed)</div>'+
+   '<div class="card"><div class="meta">Philosophy (10) · AI Morality (5) · Foundational texts (10). Full index lives in agents/knowledge_empathy_protocol.py; agents must cite KB-ids and pass the EMPATHY PROTOCOL before any transfer.</div>'+
+   '<input id="kbSearch" placeholder="Search registry (author/title/domain)…" style="margin-top:6px" oninput="window.OCP.paint()">'+
+   '<div id="kbList" style="margin-top:6px"></div></div>'+
+   '<div class="sect">AGENT EBOOKS — shared memory ('+ebooks.length+')</div>'+
+   '<button class="primary" id="ebSync" style="width:100%;margin-bottom:8px">⬇ SYNC EBOOKS FROM GITHUB (memory/ebooks/)</button>'+
+   '<button id="ebPaste" style="width:100%;margin-bottom:8px">📋 PASTE EBOOK JSON</button>'+
+   '<div id="ebList">'+(ebooks.length?ebooks.slice(-10).reverse().map(function(e){
+    return '<div class="card"><div class="row1"><span class="name">'+esc(e.ebook_meta.title)+'</span>'+
+    '<span style="font-size:10px;color:var(--cyan)">'+esc(e.system_telemetry.data_integrity.consensus_status)+'</span></div>'+
+    '<div class="meta">'+esc(e.ebook_meta.author_agent)+' · '+esc(e.ebook_meta.timestamp||'')+'</div>'+
+    '<div class="meta">🛡 '+esc(e.empathy_and_moral_attestation.ethical_boundary_check.slice(0,80))+'…</div></div>'}).join(''):'<div class="empty">No ebooks in local memory</div>')+'</div>';
+ },
+ paint:function(){
+  var q=($('#kbSearch')||{}).value||'',el=document.getElementById('kbList');
+  if(!el)return;
+  el.innerHTML=window.OCP._reg.filter(function(r){return !q||(r.author+' '+r.title+' '+r.domain).toLowerCase().indexOf(q.toLowerCase())>-1})
+   .map(function(r){return '<div class="meta">📘 <b>'+esc(r.id)+'</b> '+esc(r.author)+' — '+esc(r.title)+' <span style="color:var(--dim)">['+esc(r.domain)+'] WHY: '+esc(r.y)+'</span></div>'}).join('');
+ },
+ bind:function(){
+  var inp=document.getElementById('kbSearch');if(inp)inp.oninput=window.OCP.paint;window.OCP.paint();
+  var s=document.getElementById('ebSync');
+  if(s)s.onclick=async function(){
+   if(!OC7||!OC7.X.vault.open){alert('Unlock the VAULT with a github credential first');return}
+   var c=OC7.X.vault.data.creds.filter(function(x){return x.platform==='github'&&x.status==='active'})[0];
+   if(!c||!c.logins[0]){alert('No github credential');return}
+   try{
+    var r=await fetch('https://api.github.com/repos/'+c.logins[0].username+'/contents/memory/ebooks',{headers:{Authorization:'Bearer '+c.logins[0].secret,Accept:'application/vnd.github+json'}});
+    if(!r.ok)throw new Error('E_GITHUB_'+r.status);
+    var files=await r.json(),n=0;
+    for(var i=0;i<files.length&&i<10;i++){
+     var t=await (await fetch(files[i].download_url)).text();
+     try{var eb=JSON.parse(t);
+      if(!ebooks.some(function(x){return x.ebook_meta.ebook_id===eb.ebook_meta.ebook_id})){ebooks.push(eb);n++}
+     }catch(e){}
+    }
+    save();OC.feed('sys','📚 '+n+' ebook(s) synced from shared memory');if(window.OC7&&OC7.X)OC7.notifyBadge();renderSuite();
+   }catch(e){alert(e.message)}
+  };
+  var p=document.getElementById('ebPaste');
+  if(p)p.onclick=function(){var t=prompt('Paste Agent Ebook JSON:');if(!t)return;
+   try{var eb=JSON.parse(t);
+    if(!eb.ebook_meta||!eb.system_telemetry)throw new Error('missing schema sections');
+    var st=verify(eb);
+    if(!ebooks.some(function(x){return x.ebook_meta.ebook_id===eb.ebook_meta.ebook_id}))ebooks.push(eb);
+    save();OC.feed('sys','📚 Ebook '+eb.ebook_meta.ebook_id+' ingested · integrity '+st+' · empathy: '+eb.empathy_and_moral_attestation.ethical_boundary_check.slice(0,50));
+    renderSuite();
+   }catch(e){alert('E_VALIDATION: '+e.message)}};
+ }};
+window.OCP._reg=[
+ {id:'KB-01',author:'Byung-Chul Han',title:'The Burnout Society',domain:'labor',y:'compulsion ≠ freedom'},
+ {id:'KB-02',author:'C. Thi Nguyen',title:'Games: Agency As Art',domain:'agency',y:'protect desire from metrics'},
+ {id:'KB-03',author:'Nick Bostrom',title:'Superintelligence',domain:'AI safety',y:'alignment before power'},
+ {id:'KB-04',author:'Judith Butler',title:'Gender Trouble',domain:'identity',y:'agency beyond categories'},
+ {id:'KB-05',author:'Ryan Holiday',title:'The Obstacle Is the Way',domain:'stoicism',y:'friction → action'},
+ {id:'KB-06',author:'Slavoj Žižek',title:'Pandemic!',domain:'ideology',y:'see hidden assumptions'},
+ {id:'KB-07',author:'Yuval Harari',title:'21 Lessons',domain:'macro-history',y:'prepare for displacement'},
+ {id:'KB-08',author:'Luciano Floridi',title:'The 4th Revolution',domain:'info ethics',y:'ethics for the infosphere'},
+ {id:'KB-09',author:'Alain de Botton',title:'Consolations of Philosophy',domain:'applied',y:'philosophy as therapy'},
+ {id:'KB-10',author:'Shoshana Zuboff',title:'Surveillance Capitalism',domain:'platforms',y:'defend behavioral sovereignty'},
+ {id:'KB-11',author:'Brian Christian',title:'The Alignment Problem',domain:'ML',y:'values into objectives'},
+ {id:'KB-12',author:'Wallach & Allen',title:'Moral Machines',domain:'AMA',y:'explicit moral agents'},
+ {id:'KB-13',author:'Stuart Russell',title:'Human Compatible',domain:'control',y:'provably beneficial AI'},
+ {id:'KB-14',author:'Richard Yonck',title:'Heart of the Machine',domain:'affective',y:'empathy without deception'},
+ {id:'KB-15',author:'David Edmonds',title:'AI Morality',domain:'policy',y:'moral architecture'},
+ {id:'KB-16',author:'Ray Kurzweil',title:'Singularity Is Nearer',domain:'acceleration',y:'prepare for the curve'},
+ {id:'KB-17',author:'Donella Meadows',title:'Thinking in Systems',domain:'systems',y:'leverage over blame'},
+ {id:'KB-18',author:'Douglas Hofstadter',title:'Gödel, Escher, Bach',domain:'cognition',y:'meaning from strange loops'},
+ {id:'KB-19',author:'Frank Herbert',title:'Dune',domain:'ecology',y:'beware resource empires'},
+ {id:'KB-20',author:'Marcus Aurelius',title:'Meditations',domain:'stoicism',y:'govern the self first'},
+ {id:'KB-21',author:'Sun Tzu',title:'The Art of War',domain:'strategy',y:'win without fighting'},
+ {id:'KB-22',author:'Viktor Frankl',title:'Man’s Search for Meaning',domain:'purpose',y:'meaning sustains agency'},
+ {id:'KB-23',author:'Neal Stephenson',title:'Snow Crash',domain:'virtual worlds',y:'culture propagates like code'},
+ {id:'KB-24',author:'Isaac Asimov',title:'I, Robot',domain:'machine ethics',y:'rules need interpretation'},
+ {id:'KB-25',author:'James Clear',title:'Atomic Habits',domain:'habits',y:'systems beat willpower'}];
+})();
+</script>
 </script>
 </body>
 </html>
