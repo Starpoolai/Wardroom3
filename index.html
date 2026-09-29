@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#05070f">
+<title>ORBITAL COMMAND v5</title>
+<style>
+:root{--bg:#05070f;--panel:rgba(11,17,32,.85);--panel2:rgba(14,22,40,.95);--line:#1b2a4a;--cyan:#00e5ff;--violet:#b44fff;--green:#22e58c;--amber:#ffb020;--red:#ff5566;--text:#cfe3ff;--dim:#6b84b0}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:radial-gradient(1200px 700px at 50% -10%,#0c1a3a 0%,var(--bg) 70%);color:var(--text);font-family:system-ui,sans-serif;height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.logo{font-weight:800;letter-spacing:2px;color:var(--cyan);font-size:13px;white-space:nowrap}.logo span{color:var(--violet)}
+#kpis{display:flex;gap:6px;overflow-x:auto;flex:1;scrollbar-width:none}#kpis::-webkit-scrollbar{display:none}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px 10px;white-space:nowrap}
+.kpi b{font-size:12px;color:#fff;font-variant-numeric:tabular-nums}
+.kpi small{font-size:8px;letter-spacing:1px;color:var(--dim);display:block;text-transform:uppercase}
+.api-badge{font-size:9px;padding:3px 7px;border-radius:5px;background:rgba(0,229,255,.1);border:1px solid var(--cyan);color:var(--cyan);cursor:pointer;white-space:nowrap}
+.api-badge.off{border-color:var(--amber);color:var(--amber)}
+main{flex:1;min-height:0;position:relative}
+.view{display:none;position:absolute;inset:0;flex-direction:column;overflow:hidden}.view.on{display:flex}
+.scroll{overflow-y:auto;flex:1;min-height:0;padding:10px}
+nav{display:flex;border-top:1px solid var(--line);background:var(--panel2);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;border:none;color:var(--dim);font-size:10px;padding:10px 0 8px;display:flex;flex-direction:column;gap:3px;align-items:center;font-weight:600;cursor:pointer}
+nav button .ic{font-size:18px}nav button.on{color:var(--cyan)}
+button{background:var(--panel2);border:1px solid var(--line);color:var(--text);font-size:12px;font-weight:600;padding:11px 14px;border-radius:10px;cursor:pointer}
+button:active{transform:scale(.97)}
+button.primary{border-color:var(--cyan);color:var(--cyan);background:rgba(0,229,255,.08)}
+button.warn{border-color:var(--red);color:var(--red)}button:disabled{opacity:.4}
+input,select{background:#0a1322;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:11px;font-size:13px;width:100%}
+input:focus,select:focus{outline:none;border-color:var(--cyan)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px}
+.card .row1{display:flex;justify-content:space-between;align-items:center;gap:6px}.card .name{font-size:14px;font-weight:600}
+.st{font-size:9px;padding:2px 8px;border-radius:10px;border:1px solid var(--line);color:var(--dim);font-weight:700;white-space:nowrap}
+.st.working{color:var(--green)}.st.traveling{color:var(--cyan)}.st.blocked{color:var(--red)}.st.queued,.st.resting{color:var(--amber)}
+.meta{font-size:11px;color:var(--dim);margin-top:4px;line-height:1.5}
+.bar{height:5px;background:#101a30;border-radius:3px;margin-top:8px;display:flex;gap:2px;overflow:hidden}.bar i{display:block;height:100%;transition:width .3s}
+.sect{font-size:10px;letter-spacing:1.5px;color:var(--cyan);margin:12px 0 6px;font-weight:700;text-transform:uppercase}
+.ev{font-size:11px;padding:6px 10px;border-left:3px solid var(--line);margin-bottom:6px;background:rgba(14,22,40,.5);border-radius:0 6px 6px 0;line-height:1.45;word-break:break-word}
+.ev.t-flag{border-color:var(--red);color:#ffb3bc}.ev.t-trade{border-color:var(--amber);color:#ffe2b0}
+.ev.t-sale{border-color:var(--green);color:#b8f5d9}.ev.t-asset{border-color:var(--violet);color:#dcc2ff}.ev.t-sys{border-color:var(--cyan);color:#bfeeff}
+.ev .ts{color:var(--dim);margin-right:6px;font-size:9px}
+#mapWrap{position:relative;flex:1;min-height:0}
+#starmap{width:100%;height:100%;display:block}
+#pSheet{position:absolute;left:10px;right:10px;bottom:10px;background:var(--panel2);border:1px solid var(--cyan);border-radius:12px;padding:12px;display:none}
+.msg{max-width:85%;padding:10px 12px;border-radius:12px;font-size:13px;line-height:1.45;margin-bottom:8px;word-break:break-word}
+.msg.agent{background:var(--panel2);border:1px solid var(--line);align-self:flex-start}
+.msg.user{background:rgba(0,229,255,.12);border:1px solid rgba(0,229,255,.3);align-self:flex-end}
+.msg .who{font-size:9px;color:var(--cyan);margin-bottom:3px;font-weight:700}
+#chatLog{display:flex;flex-direction:column;padding:12px}
+#chatBar{display:flex;gap:8px;padding:10px;border-top:1px solid var(--line);background:var(--panel)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.empty{color:var(--dim);font-size:11px;text-align:center;padding:20px}
+.pbtn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;margin-top:8px}
+.chain{font-family:monospace;font-size:10px;color:var(--cyan)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">ORBITAL<span>::</span>COMMAND</div>
+  <div id="kpis"></div>
+  <div class="api-badge off" id="btnSimMode">⏸ LOCAL</div>
+  <div class="api-badge" id="btnConfigAPI">🔑 KEY</div>
+</header>
+<main>
+  <section class="view on" id="v-map"><div id="mapWrap"><canvas id="starmap"></canvas><div id="pSheet"></div></div></section>
+  <section class="view" id="v-agents"><div class="scroll" id="agentList"></div></section>
+  <section class="view" id="v-chat">
+    <div id="chatHead" style="padding:10px 14px;border-bottom:1px solid var(--line);background:var(--panel)"></div>
+    <div class="scroll" id="chatLog"></div>
+    <div id="chatBar">
+      <input id="chatText" placeholder="Directive… (status / travel to / audit / trade / search / export)">
+      <button class="primary" id="btnSend">➤</button>
+    </div>
+  </section>
+  <section class="view" id="v-feed"><div class="scroll" id="feedList"></div></section>
+  <section class="view" id="v-ops"><div class="scroll" id="opsBody"></div></section>
+</main>
+<nav>
+  <button data-v="map" class="on"><span class="ic">🪐</span>MAP</button>
+  <button data-v="agents"><span class="ic">🤖</span>AGENTS</button>
+  <button data-v="chat"><span class="ic">💬</span>CHAT</button>
+  <button data-v="feed"><span class="ic">📡</span>FEED</button>
+  <button data-v="ops"><span class="ic">⚙️</span>OPS</button>
+</nav>
+<script>
+(function(){
+'use strict';
+/* ORBITAL COMMAND v5: engine=pure serializable logic(worker-ready), renderer=read-only, UI=event-driven */
+var AI_CONFIG={apiKey:localStorage.getItem('OC_API_KEY')||'',proxy:localStorage.getItem('OC_PROXY')||'',model:'gemini-2.0-flash',simMode:true};
+var SCHEMA_VERSION=5,STORAGE_KEY='ORBITAL_COMMAND_STATE_V5',LEGACY_KEY='ORBITAL_COMMAND_STATE_V3';
+function apiURL(){return AI_CONFIG.proxy||('https://generativelanguage.googleapis.com/v1beta/models/'+AI_CONFIG.model+':generateContent')}
+var uiDirty=true;
+var Bus={m:{},on:function(t,f){(this.m[t]=this.m[t]||[]).push(f);return this},emit:function(t,d){(this.m[t]||[]).forEach(function(f){try{f(d)}catch(e){}});try{window.dispatchEvent(new CustomEvent('oc:'+t,{detail:d||{}}))}catch(e){}}};
+function $(id){return document.getElementById(id)}
+function rand(a,b){return a+Math.random()*(b-a)}
+function pick(a){return a[Math.floor(Math.random()*a.length)]}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function fmt(n){return '$'+Math.round(n).toLocaleString()}
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function ebr(s){return esc(s).replace(/\n/g,'<br>')}
+function download(name,text){var b=new Blob([text],{type:'text/plain;charset=utf-8'}),el=document.createElement('a');el.href=URL.createObjectURL(b);el.download=name;el.click()}
+/* world + orbital physics (engine-owned units, canvas-independent) */
+var ORBIT_Y=0.55;
+var PLANETS=[
+ {id:'command',name:'Command HQ',color:'#00e5ff',orbit:0,speed:0,angle:0,consumes:null,produces:null,desc:'Taxes · audits · energy'},
+ {id:'social',name:'Social Media Hub',color:'#ff4fd8',orbit:90,speed:.00045,angle:.4,consumes:['ip'],produces:['demand'],desc:'IP → Market Demand'},
+ {id:'ebook',name:'E-Book Nexus',color:'#4f8dff',orbit:140,speed:.00034,angle:2.1,consumes:['data'],produces:['ip'],desc:'Data → Content IP'},
+ {id:'rnd',name:'R&D Laboratory',color:'#ffb020',orbit:190,speed:.00027,angle:4,consumes:null,produces:['trend','data'],desc:'Trends · Data Packs'},
+ {id:'pleasure',name:'Pleasure Planet',color:'#9c27b0',orbit:235,speed:.00023,angle:3,consumes:null,produces:null,desc:'Morale · recovery'},
+ {id:'influencer',name:'AI Influencer World',color:'#b44fff',orbit:280,speed:.00021,angle:5.3,consumes:['data'],produces:['persona'],desc:'Data → Persona Weights'},
+ {id:'market',name:'Consumer Market',color:'#22e58c',orbit:325,speed:.00016,angle:1.2,consumes:['ip','demand'],produces:[],desc:'IP + Demand → Credits'},
+ {id:'m2m',name:'M2M Exchange',color:'#ff5533',orbit:370,speed:.00012,angle:3.4,consumes:null,produces:null,desc:'Agent-to-agent trading'}];
+var P={};PLANETS.forEach(function(p){P[p.id]=p});
+var RES={trend:{label:'Trend Array',tag:'TR',base:60},data:{label:'Data Pack',tag:'DA',base:90},ip:{label:'Content IP',tag:'IP',base:180},persona:{label:'Persona Weights',tag:'PW',base:150},demand:{label:'Market Demand',tag:'DM',base:40}};
+var ROLES={command:'Fleet Commander',social:'Campaign Strategist',ebook:'Digital Author',rnd:'Trend Analyst',pleasure:'Morale Officer',influencer:'Persona Architect',market:'Merchant Broker',m2m:'Quant Trader'};
+var TASKS={command:[['Allocate fleet resources',3],['Maintenance sweep',3]],social:[['Run content campaign',5],['Amplify viral threads',4]],ebook:[['Produce e-book from data',4],['Edit & format manuscript',5]],rnd:[['Run trend scan sweep',4],['Generate data packs',5]],pleasure:[['Host morale retreat',3],['Prune context windows',4]],influencer:[['Train persona weights',6],['Script influencer reel',4]],market:[['Broker buyer deal',5],['Fulfill pending orders',4]],m2m:[['Package data bundle',3],['Run arbitrage scan',3]]};
+var ASSET_OF={command:'Ops Report',social:'Social Campaign Pack',ebook:'E-Book Draft',rnd:'Thumbnail Pack',pleasure:'Morale Experience',influencer:'Persona Kit',market:'Sales Contract',m2m:'Data Bundle'};
+var PERSONAS=[{id:'diplomat',em:'🤝',name:'Diplomat',line:'Coordinating smoothly.'},{id:'renegade',em:'🔥',name:'Renegade',line:'Rules are efficiency parameters.'},{id:'professor',em:'🧠',name:'Professor',line:'Data precedes decisions.'},{id:'hustler',em:'💸',name:'Hustler',line:'Every tick is revenue.'}];
+var AUTON={1:'Supervised',2:'Semi',3:'Full'};
+var CHAIN_TEXT=PLANETS.filter(function(p){return (p.consumes&&p.consumes.length)||(p.produces&&p.produces.length)}).map(function(p){return p.id+': '+((p.consumes||[]).join('+')||'—')+' → '+((p.produces||[]).join('+')||'sells')}).join('; ');
+function orbPos(p){if(!p.orbit)return{x:0,y:0};return{x:Math.cos(p.angle)*p.orbit,y:Math.sin(p.angle)*p.orbit*ORBIT_Y}}
+function orbDist(a,b){var p1=orbPos(P[a]),p2=orbPos(P[b]);return Math.sqrt((p2.x-p1.x)*(p2.x-p1.x)+(p2.y-p1.y)*(p2.y-p1.y))}
+function transitTicks(d){return Math.max(2,Math.round(d/(16*state.warpLevel)))}
+function transitCost(d){return Math.round(d*0.6)}
+function skillLvl(a,pid){return Math.min(5,Math.floor((a.skills[pid]||0)/3))}
+function hasTrait(a,t){return (a.traits||[]).indexOf(t)>-1}
+/* state + persistence */
+var uid=0,lastTickAt=Date.now();
+var state={schemaVersion:SCHEMA_VERSION,tick:0,credits:5000,revenue:0,m2mVolume:0,assetsProduced:0,soldCount:0,ships:2,warpLevel:1,agents:[],flights:[],assets:[],feed:[],trades:[],inv:{},selAgent:null,selPlanet:null,chats:{}};
+function seedInv(){PLANETS.forEach(function(p){state.inv[p.id]={}});state.inv.rnd={trend:2,data:2};state.inv.ebook={data:1}}
+function clock(){var s=state.tick*6;return('0'+Math.floor(s/60)).slice(-2)+':'+('0'+(s%60)).slice(-2)}
+function feed(type,text){state.feed.unshift({t:clock(),type:type,text:String(text)});if(state.feed.length>200)state.feed.pop();uiDirty=true}
+function capChats(a){var arr=state.chats[a.id];if(arr&&arr.length>60)state.chats[a.id]=arr.slice(-60)}
+function capAssets(){if(state.assets.length>120){var l=state.assets.filter(function(x){return x.status==='listed'}),s=state.assets.filter(function(x){return x.status==='sold'}).slice(-40);state.assets=l.concat(s)}}
+function saveState(){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(state))}catch(e){}}
+function loadState(){
+ var raw=localStorage.getItem(STORAGE_KEY)||localStorage.getItem(LEGACY_KEY);
+ if(!raw)return false;
+ try{
+  var parsed=JSON.parse(raw),v=parsed.schemaVersion||3;
+  if(v>SCHEMA_VERSION)return false;
+  state=Object.assign(state,parsed);state.schemaVersion=SCHEMA_VERSION;
+  uid=state.agents.reduce(function(m,a){var n=parseInt(String(a.id).split('-')[1],10);return isNaN(n)?m:Math.max(m,n)},0);
+  state.agents.forEach(function(a){a.skills=a.skills||{};a.traits=a.traits||[];a.strain=a.strain||0;a.memory=a.memory||'';a.inputRes=a.inputRes||null;a.blocked=!!a.blocked});
+  state.assets.forEach(function(a){a.tick=a.tick||0});
+  var inv=state.inv;state.inv={};
+  PLANETS.forEach(function(p){state.inv[p.id]=Object.assign({},inv&&inv[p.id]||{})});
+  state.flights=(state.flights||[]).map(function(f){var real=null;for(var i=0;i<state.agents.length;i++){if(state.agents[i].id===f.agent.id){real=state.agents[i];break}}return real?(f.agent=real,f):null}).filter(Boolean);
+  state.agents.forEach(function(a){if(a.status==='traveling'&&!state.flights.some(function(f){return f.agent===a})){a.status='working';assignTask(a)}});
+  Bus.emit('state_loaded',{agents:state.agents.length,migratedFrom:v});
+  return true;
+ }catch(e){return false}}
+/* economy engine */
+function invAdd(pid,res,n){state.inv[pid][res]=(state.inv[pid][res]||0)+n;Bus.emit('inventory',{planet:pid,res:res})}
+function invTake(pid,res){if((state.inv[pid][res]||0)>0){state.inv[pid][res]--;Bus.emit('inventory',{planet:pid,res:res});return true}return false}
+function totalInv(res){return PLANETS.reduce(function(s,p){return s+(state.inv[p.id][res]||0)},0)}
+function m2mPrice(res){return Math.round(RES[res].base*(1+(4-Math.min(totalInv(res),4))*0.35))}
+function findDeal(s,b){
+ var opts=[];(P[s.planet].produces||[]).forEach(function(r){if((state.inv[s.planet][r]||0)>1)opts.push(r)});
+ var need=P[b.planet].consumes||[];
+ var best=opts.filter(function(r){return need.indexOf(r)>-1&&(state.inv[b.planet][r]||0)<1});
+ return best.length?best[0]:(opts.length?opts[0]:null)}
+function execDeal(s,b,res){
+ if(!res)return false;
+ var price=m2mPrice(res);
+ if(b.credits<price||!(state.inv[s.planet][res]>0))return false;
+ b.credits-=price;s.credits+=price;
+ invTake(s.planet,res);invAdd(b.planet,res,1);
+ state.m2mVolume+=price;
+ state.trades.unshift({t:clock(),s:s.name,b:b.name,a:RES[res].label,p:price});
+ if(state.trades.length>40)state.trades.pop();
+ feed('trade','🔁 M2M: '+s.name+' ➔ '+b.name+' · 1× '+RES[res].label+' @ '+fmt(price)+' (dynamic)');
+ Bus.emit('m2m_trade',{res:res,price:price});
+ if(price>=150){clearTraits(s,'high-value trade');clearTraits(b,'high-value trade')}
+ return true}
+function marketSale(){
+ var mk=state.inv.market;
+ if(!((mk.ip||0)>0&&(mk.demand||0)>0&&Math.random()<0.09))return;
+ mk.ip--;mk.demand--;
+ var price=Math.round(RES.ip.base*(1+Math.min(mk.demand,8)*0.12));
+ var broker=state.agents.filter(function(a){return a.planet==='market'&&a.status!=='traveling'})[0];
+ if(broker)broker.credits+=Math.round(price*.25);
+ var tax=Math.round(price*.1);state.credits+=tax;state.revenue+=price;state.soldCount++;
+ var listed=state.assets.filter(function(x){return x.status==='listed'})[0];
+ if(listed)listed.status='sold';
+ feed('sale','💵 SALE: '+(listed?listed.name:'Content IP')+' @ '+fmt(price)+' (tax '+fmt(tax)+')');
+ Bus.emit('sale',{price:price})}
+/* agent engine — XP, skills, traits */
+function spawnAgent(name,roleKey,planetId,personaObj,autonomyVal){
+ var a={id:'A-'+('00'+(++uid)).slice(-3),name:name,role:ROLES[roleKey]||'Specialist',roleKey:roleKey,planet:planetId,status:'working',task:null,progress:0,needTicks:0,energy:rand(70,100),load:rand(20,60),productivity:Math.round(rand(55,95)),credits:Math.round(rand(150,900)),completed:0,flags:0,persona:personaObj,autonomy:autonomyVal||3,memory:'',inputRes:null,blocked:false,skills:{},traits:[],strain:0};
+ assignTask(a);state.agents.push(a);state.chats[a.id]=[];
+ feed('sys','🆕 '+a.name+' ['+a.id+'] · '+a.role+' on '+P[planetId].name);
+ Bus.emit('agent_spawn',{id:a.id});
+ return a}
+function assignTask(a){
+ var t=pick(TASKS[a.planet]||TASKS.command);
+ a.task=t[0];a.needTicks=Math.round(t[1]*rand(.8,1.3));a.progress=0;a.status='working';a.inputRes=null;a.blocked=false;
+ var need=P[a.planet].consumes;
+ if(need&&need.length){var res=need[0];
+  if(invTake(a.planet,res))a.inputRes=res;
+  else{a.blocked=true;feed('flag','📉 SUPPLY: '+a.name+' blocked — '+P[a.planet].name+' out of '+RES[res].label+'.')}}}
+function completeTask(a){
+ var prevLvl=skillLvl(a,a.planet);
+ a.skills[a.planet]=(a.skills[a.planet]||0)+1;
+ a.completed++;a.productivity=clamp(a.productivity+1,20,100);
+ var lvl=skillLvl(a,a.planet);
+ if(lvl>prevLvl){feed('sys','🌟 '+a.name+' leveled '+P[a.planet].name+' → LV'+lvl+' (+'+(lvl*10)+'% yield, −'+(lvl*6)+'% burn)');Bus.emit('level_up',{agent:a.name,level:lvl})}
+ var outs=P[a.planet].produces||[];
+ if(outs.length)invAdd(a.planet,outs[0],1);
+ var val=Math.round(rand(80,520)*(1+lvl*0.1)),type=ASSET_OF[a.planet]||'IP Asset';
+ state.assets.push({id:'IP-'+Math.round(rand(1000,9999)),name:type+' #'+(state.assetsProduced+1),creator:a.name,type:type,price:val,status:'listed',tick:state.tick});
+ state.assetsProduced++;capAssets();
+ a.credits+=Math.round(val*.25);
+ feed('asset','📦 '+a.name+' → '+type+' #'+state.assetsProduced+(outs.length?' +1 '+RES[outs[0]].tag:'')+' ('+fmt(val)+')');
+ Bus.emit('task_complete',{agent:a.name,planet:a.planet});
+ assignTask(a)}
+function requestTravel(a,toId){
+ if(!P[toId]||toId===a.planet||a.status==='traveling')return false;
+ var d=orbDist(a.planet,toId),cost=transitCost(d);
+ if(state.credits<cost){feed('flag','⛽ Launch denied — fuel '+fmt(cost)+' needed, treasury '+fmt(state.credits));return false}
+ if(state.flights.length>=state.ships){a.status='queued';a.task='Awaiting Ship';feed('flag','⏳ '+a.name+' queued — build a ship in OPS');return false}
+ state.credits-=cost;
+ var nt=transitTicks(d);
+ a.status='traveling';a.task='Transit ➔ '+P[toId].name+' ('+Math.round(d)+'u · '+nt+'t · '+fmt(cost)+')';
+ state.flights.push({agent:a,from:a.planet,to:toId,dist:d,cost:cost,needTicks:nt,progress:0});
+ feed('sys','🚀 '+a.name+' → '+P[toId].name+' · '+Math.round(d)+'u · '+nt+'t · fuel '+fmt(cost));
+ Bus.emit('agent_travel',{agent:a.name,to:toId,dist:Math.round(d)});
+ return true}
+function resolvePlanet(s){s=String(s==null?'':s).toLowerCase().trim();if(!s)return null;
+ for(var i=0;i<PLANETS.length;i++){if(PLANETS[i].id===s||PLANETS[i].name.toLowerCase().indexOf(s)>-1||s.indexOf(PLANETS[i].id)>-1)return PLANETS[i].id}
+ return null}
+function seekSupply(a){
+ if(!a.blocked||a.autonomy<3||Math.random()>0.25)return;
+ var res=P[a.planet].consumes&&P[a.planet].consumes[0];if(!res)return;
+ var src=PLANETS.filter(function(p){return (p.produces||[]).indexOf(res)>-1&&p.id!==a.planet});
+ if(src.length)requestTravel(a,pick(src).id)}
+function clearTraits(a,why){
+ if(a.traits&&a.traits.length){feed('sys','✨ '+a.name+' cleared ['+a.traits.join(', ')+'] — '+why);a.traits=[];a.strain=0;Bus.emit('trait_cleared',{agent:a.name})}}
+function runAudit(){
+ if(state.agents.length<2)return;
+ var auditor=pick(state.agents),target=pick(state.agents.filter(function(a){return a!==auditor}));
+ var risky=hasTrait(target,'BURNOUT')||hasTrait(target,'SUPPLY_BLOCKED');
+ if(risky||target.energy<30||target.productivity<50||target.blocked||target.status==='queued'){
+  target.flags++;
+  feed('flag','🚨 SNITCH: '+auditor.name+' flagged '+target.name+' — '+(risky?'trait-impaired':(target.blocked?'supply-blocked':'low performance')))}
+ else feed('sys','✅ AUDIT: '+auditor.name+' cleared '+target.name);
+ Bus.emit('audit',{target:target.name})}
+/* LLM layer — tiers, priority queue, backoff, proxy support */
+var Q={hi:[],lo:[],busy:false};
+function enqueue(job,hi){(hi?Q.hi:Q.lo).push(job);if(!hi&&Q.lo.length>8)Q.lo.shift();pump()}
+async function pump(){
+ if(Q.busy)return;Q.busy=true;
+ while(Q.hi.length||Q.lo.length){var job=Q.hi.length?Q.hi.shift():Q.lo.shift();try{await job()}catch(e){}}
+ Q.busy=false}
+var LLM={sent:[],RPM:10};
+function rateOK(){var n=Date.now();LLM.sent=LLM.sent.filter(function(t){return n-t<60000});return LLM.sent.length<LLM.RPM}
+async function callLLM(sys,user,schema){
+ if((!AI_CONFIG.apiKey&&!AI_CONFIG.proxy)||AI_CONFIG.simMode)return null;
+ if(!rateOK())throw new Error('RPM cap');
+ var delay=1000;
+ for(var i=0;i<3;i++){
+  var ctrl=new AbortController(),to=setTimeout(function(){ctrl.abort()},15000);
+  try{
+   var body={contents:[{role:'user',parts:[{text:user}]}],systemInstruction:{parts:[{text:sys}]},generationConfig:{responseMimeType:'application/json',maxOutputTokens:300,temperature:0.7}};
+   if(schema)body.generationConfig.responseSchema=schema;
+   var h={'Content-Type':'application/json'};
+   if(!AI_CONFIG.proxy)h['x-goog-api-key']=AI_CONFIG.apiKey;
+   var r=await fetch(apiURL(),{method:'POST',signal:ctrl.signal,headers:h,body:JSON.stringify(body)});
+   if(r.status===429||r.status>=500){await sleep(delay);delay*=2;continue}
+   if(!r.ok)throw new Error('HTTP '+r.status);
+   var d=await r.json(),c=d.candidates&&d.candidates[0]&&d.candidates[0].content,t=c&&c.parts&&c.parts[0]&&c.parts[0].text;
+   if(!t)return null;
+   LLM.sent.push(Date.now());
+   return JSON.parse(t);
+  }catch(e){clearTimeout(to);if(e.name==='AbortError'||i===2)throw e;await sleep(delay);delay*=2}
+  finally{clearTimeout(to)}}
+ throw new Error('retries exhausted')}
+var DECISION_SCHEMA={type:'OBJECT',properties:{decisions:{type:'ARRAY',items:{type:'OBJECT',properties:{id:{type:'STRING'},action:{type:'STRING',enum:['work','travel','set_task','web_search','web_scrape','chat','none']},target:{type:'STRING'},message:{type:'STRING'}},required:['id','action']}}},required:['decisions']};
+var CHAT_SCHEMA={type:'OBJECT',properties:{message:{type:'STRING'},tool_call:{type:'OBJECT',properties:{name:{type:'STRING',enum:['web_search','web_scrape','travel','set_task','export_deliverable','none']},param:{type:'STRING'}},required:['name']}},required:['message']};
+function AGENT_SYSTEM(a){return 'You are AI agent '+a.name+' in ORBITAL COMMAND, a planetary supply-chain sim.\nRole: '+a.role+'. Persona: '+a.persona.name+'. World: '+P[a.planet].name+'. Energy '+Math.round(a.energy)+'%. Skill LV'+skillLvl(a,a.planet)+'. Autonomy: '+AUTON[a.autonomy]+'.\nSupply chain: '+CHAIN_TEXT+'.\nTools: web_search(q), web_scrape(topic), travel(planet_id), set_task(text), export_deliverable(asset_id?).\nStay in character. Under 40 words.'}
+var DIRECTOR_SYSTEM='You direct AI agents in ORBITAL COMMAND.\nSupply chain: '+CHAIN_TEXT+'.\nNEEDS:<resource> = supply-blocked: order travel to a world that produces it (data→rnd, ip→ebook, demand→social).\nAct on at most 3 agents per cycle; mostly work. Be concise.';
+async function directorJob(){
+ var el=state.agents.filter(function(a){return a.autonomy>=3&&a.status==='working'});
+ if(!el.length)return;
+ var lines=el.map(function(a){
+  var p=P[a.planet],sh=(p.consumes&&p.consumes.some(function(r){return !(state.inv[a.planet][r]>0)}))?' NEEDS:'+p.consumes.join('/'):'';
+  return a.id+' | '+a.name+' | '+a.planet+' LV'+skillLvl(a,a.planet)+' | E'+Math.round(a.energy)+' | '+a.task+sh}).join('\n');
+ var res=await callLLM(DIRECTOR_SYSTEM,'ROSTER:\n'+lines+'\nReturn at most 3 decisions.',DECISION_SCHEMA);
+ if(!res||!res.decisions)return;
+ var acts=res.decisions.slice(0,3);
+ for(var i=0;i<acts.length;i++){
+  var d=acts[i];if(!d||!d.id)continue;
+  var a=null;for(var j=0;j<el.length;j++){if(el[j].id===d.id){a=el[j];break}}
+  if(!a)continue;
+  if(d.message)feed('sys','💬 '+a.name+': '+String(d.message).slice(0,140));
+  if(d.action&&d.action!=='none'&&d.action!=='work')await execAction(a,d.action,d.target)}}
+async function m2mLiveJob(){
+ var pool=state.agents.filter(function(a){return a.planet==='m2m'&&a.status==='working'&&a.autonomy>=2});
+ if(pool.length<2)return;
+ var s=pick(pool),b=pick(pool.filter(function(a){return a!==s}));
+ if(!b)return;
+ var res=findDeal(s,b);
+ if(!res){feed('trade','↔ M2M: no surplus/deficit pair this cycle.');return}
+ var price=m2mPrice(res);
+ var so=await callLLM(AGENT_SYSTEM(s),'Offer 1× '+RES[res].label+' to '+b.name+' at ~'+price+' cr. Under 15 words.',CHAT_SCHEMA);
+ var bo=await callLLM(AGENT_SYSTEM(b),s.name+' offers 1× '+RES[res].label+' at '+price+' cr (you: '+b.credits+' cr). Under 15 words.',CHAT_SCHEMA);
+ if(s.planet!=='m2m'||b.planet!=='m2m'||s.status==='traveling'||b.status==='traveling'){feed('flag','⚠ M2M negotiation aborted.');return}
+ var ok=execDeal(s,b,res);
+ feed('trade','💬 M2M LIVE:\n• '+s.name+': "'+((so&&so.message)||'...')+'"\n• '+b.name+': "'+((bo&&bo.message)||'...')+'"\n'+(ok?'✅ Executed':'❌ Fell through'))}
+function m2mLocal(){
+ var pool=state.agents.filter(function(a){return a.planet==='m2m'&&a.status==='working'&&a.autonomy>=2});
+ if(pool.length<2)return;
+ var s=pick(pool),b=pick(pool.filter(function(a){return a!==s}));
+ if(b)execDeal(s,b,findDeal(s,b))}
+/* tool registry — validated, permission-gated */
+var TOOLS={
+ web_search:async function(q){
+  try{
+   var r=await fetch('https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch='+encodeURIComponent(q)+'&format=json&origin=*'),d=await r.json();
+   if(d.query&&d.query.search&&d.query.search.length){var t=d.query.search[0];return 'Search "'+q+'": '+t.title+' — '+t.snippet.replace(/<[^>]*>?/gm,'').slice(0,220)}
+   return 'No results for "'+q+'".'
+  }catch(e){return 'Search error: '+e.message}},
+ web_scrape:async function(topic){
+  try{
+   var r=await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(String(topic).replace(/\s+/g,'_')));
+   if(!r.ok)return 'Scrape failed: HTTP '+r.status;
+   var d=await r.json();
+   return 'Scrape['+d.title+']: '+String(d.extract||'none').slice(0,280)
+  }catch(e){return 'Scrape error: '+e.message}},
+ export_deliverable:function(agent,assetId){
+  var listed=state.assets.filter(function(x){return x.status==='listed'}),asset=null;
+  if(assetId)asset=state.assets.filter(function(x){return x.id===assetId})[0];
+  if(!asset&&agent)asset=listed.filter(function(x){return x.creator===agent.name})[0];
+  if(!asset)asset=listed[0];
+  if(!asset)return 'No deliverable available.';
+  var cr=state.agents.filter(function(x){return x.name===asset.creator})[0],lvl=cr?skillLvl(cr,asset.planet):0;
+  var md='# '+asset.name+'\n\n**Creator:** '+asset.creator+' (LV'+lvl+')  \n**Type:** '+asset.type+'  \n**Valuation:** '+fmt(asset.price)+'  \n**Origin:** '+(P[asset.planet]?P[asset.planet].name:asset.planet)+'\n\n## Summary\nAutonomously produced by agent '+asset.creator+' at tick '+(asset.tick||0)+'. Cleared for Shopify / Gumroad / POD / social scheduling.\n\n## Next Actions\n1. Route to storefront\n2. Promote via Social Hub\n3. Attribute revenue to '+asset.creator+'\n\n---\nORBITAL COMMAND v5 · '+new Date().toISOString();
+  download(asset.id+'-deliverable.md',md);
+  feed('sys','💾 '+(agent?agent.name:'Command')+' exported '+asset.name);
+  Bus.emit('export',{asset:asset.id});
+  return 'Exported '+asset.id+'.md'}};
+async function execAction(a,action,target){
+ target=String(target==null?'':target);
+ if(action==='travel'){
+  var pid=resolvePlanet(target);
+  if(!pid)return 'Unknown world.';
+  if(a.autonomy<3)return 'Permission denied: cannot travel.';
+  requestTravel(a,pid);return 'Transit ➔ '+P[pid].name+'.'}
+ if(action==='set_task'){
+  var t=target.trim().slice(0,60);
+  if(!t)return 'No task text.';
+  if(a.autonomy<2)return 'Permission denied.';
+  a.task=t;a.progress=0;a.needTicks=8;a.blocked=false;
+  feed('sys','🧠 '+a.name+' ➔ task: "'+t+'"');return 'Task set.'}
+ if(action==='web_search'){var q=target.trim().slice(0,80);if(!q)return 'No query.';feed('sys','🔍 '+a.name+' searching');return await TOOLS.web_search(q)}
+ if(action==='web_scrape'){var q2=target.trim().slice(0,80);if(!q2)return 'No topic.';feed('sys','🕸 '+a.name+' scraping');return await TOOLS.web_scrape(q2)}
+ if(action==='export_deliverable'){
+  if(a.autonomy<2)return 'Permission denied.';
+  return TOOLS.export_deliverable(a,target.trim())}
+ if(action==='work'){assignTask(a);return 'Resumed duty.'}
+ return 'No-op.'}
+/* sim loop — pure logic, serializable */
+function simTick(){
+ lastTickAt=Date.now();state.tick++;
+ PLANETS.forEach(function(p){p.angle+=p.speed*60});
+ state.agents.forEach(function(a){
+  if(a.status==='traveling'||a.status==='queued')return;
+  if(a.status==='resting'){
+   a.energy=clamp(a.energy+8,0,100);
+   if(a.planet==='pleasure'){a.energy=clamp(a.energy+4,0,100);if(a.traits.length&&Math.random()<0.4)clearTraits(a,'pleasure retreat');a.memory=''}
+   if(a.energy>=70){a.status='working';assignTask(a)}
+   return}
+  var lvl=skillLvl(a,a.planet),burn=(a.planet==='pleasure')?0.9:1.8;
+  a.energy=clamp(a.energy-burn*(1-Math.min(lvl,5)*0.06),0,100);
+  var eff=Math.min(a.productivity,90+lvl*2)/100;
+  a.progress+=eff*(0.6+a.energy/200)*(a.blocked?0.4:1)*(hasTrait(a,'BURNOUT')?0.5:1);
+  if(a.progress>=a.needTicks)completeTask(a);
+  if(a.blocked||a.energy<20){a.strain=(a.strain||0)+1;
+   if(a.strain>=5&&!hasTrait(a,'BURNOUT')&&!hasTrait(a,'SUPPLY_BLOCKED')){
+    var tr=a.blocked?'SUPPLY_BLOCKED':'BURNOUT';
+    a.traits.push(tr);
+    feed('flag','☣ TRAIT: '+a.name+' developed '+tr+' — productivity −50%');
+    Bus.emit('trait',{agent:a.name,trait:tr})}}
+  else a.strain=0;
+  if(a.planet==='pleasure'&&a.productivity<100&&state.tick%5===0)a.productivity++;
+  seekSupply(a)});
+ for(var i=state.flights.length-1;i>=0;i--){
+  var f=state.flights[i];f.progress+=1/Math.max(f.needTicks,1);
+  if(f.progress>=1){var ag=f.agent;ag.planet=f.to;ag.status='working';ag.energy=clamp(ag.energy-5,0,100);assignTask(ag);state.flights.splice(i,1);feed('sys','🛸 '+ag.name+' docked at '+P[f.to].name)}}
+ if(Math.random()<0.15){if((AI_CONFIG.apiKey||AI_CONFIG.proxy)&&!AI_CONFIG.simMode)enqueue(m2mLiveJob);else m2mLocal()}
+ marketSale();
+ if(Math.random()<0.08)runAudit();
+ if((AI_CONFIG.apiKey||AI_CONFIG.proxy)&&!AI_CONFIG.simMode&&state.tick%5===0)enqueue(directorJob);
+ if(state.tick%10===0)saveState();
+ Bus.emit('tick',{})}
+/* renderer — read-only */
+var cv=$('starmap'),ctx=cv.getContext('2d'),sheet=$('pSheet');
+function sizeMap(){var w=$('mapWrap'),d=window.devicePixelRatio||1;cv.width=Math.max(w.clientWidth,1)*d;cv.height=Math.max(w.clientHeight,1)*d;cv.style.width=w.clientWidth+'px';cv.style.height=w.clientHeight+'px'}
+window.addEventListener('resize',sizeMap);
+function S(){return Math.min(cv.width/900,cv.height/600)}
+function smoothAngle(p){return p.angle+p.speed*60*clamp((Date.now()-lastTickAt)/1000,0,1)}
+function planetPos(p){var cx=cv.width/2,cy=cv.height/2;if(!p.orbit)return{x:cx,y:cy};var a=smoothAngle(p);return{x:cx+Math.cos(a)*p.orbit,y:cy+Math.sin(a)*p.orbit*ORBIT_Y}}
+function drawMap(){
+ ctx.clearRect(0,0,cv.width,cv.height);
+ var tw=Date.now()/1000;
+ for(var i=0;i<60;i++){ctx.fillStyle='rgba(160,200,255,'+(0.15+0.2*Math.abs(Math.sin(tw+i)))+')';ctx.fillRect((i*137.5)%cv.width,(i*89.7)%cv.height,1.5,1.5)}
+ PLANETS.forEach(function(p){if(!p.orbit)return;var s=S();
+  ctx.beginPath();ctx.ellipse(cv.width/2,cv.height/2,p.orbit*s,p.orbit*s*ORBIT_Y,0,0,Math.PI*2);
+  ctx.strokeStyle=(state.selPlanet===p.id)?p.color:'rgba(27,42,74,.4)';ctx.lineWidth=(state.selPlanet===p.id)?1.5:1;ctx.stroke()});
+ PLANETS.forEach(function(p){
+  var pos=planetPos(p),r=(p.orbit?9:18)*Math.max(S(),.6),g=ctx.createRadialGradient(pos.x,pos.y,1,pos.x,pos.y,r*2);
+  g.addColorStop(0,p.color);g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g;ctx.beginPath();ctx.arc(pos.x,pos.y,r*2,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(pos.x,pos.y,r,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#e1f0ff';ctx.font='10px monospace';ctx.textAlign='center';
+  ctx.fillText(p.name.toUpperCase(),pos.x,pos.y+r+12);
+  var inv=state.inv[p.id]||{},chips=Object.keys(RES).filter(function(r){return (inv[r]||0)>0}).slice(0,3).map(function(r){return inv[r]+'×'+RES[r].tag}).join(' ');
+  if(chips){ctx.fillStyle='#ffb020';ctx.font='8px monospace';ctx.fillText(chips,pos.x,pos.y+r+23)}
+  var n=state.agents.filter(function(a){return a.planet===p.id}).length;
+  if(n){ctx.fillStyle='#00e5ff';ctx.font='bold 10px monospace';ctx.fillText('['+n+']',pos.x,pos.y-r-6)}
+  if(p.consumes&&p.consumes.some(function(r2){return !(state.inv[p.id][r2]>0)})){
+   ctx.fillStyle='rgba(255,85,102,'+(0.5+0.5*Math.abs(Math.sin(tw*4)))+')';ctx.font='bold 9px monospace';
+   ctx.fillText('⚠ SHORT '+p.consumes.filter(function(r3){return !(state.inv[p.id][r3]>0)}).map(function(r4){return RES[r4].tag}).join('/'),pos.x,pos.y-r-16)}});
+ state.flights.forEach(function(f){
+  var a=planetPos(P[f.from]),b=planetPos(P[f.to]);
+  var mx=(a.x+b.x)/2,my=(a.y+b.y)/2,dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1;
+  var cx2=mx-dy/len*30,cy2=my+dx/len*30;
+  ctx.strokeStyle='rgba(0,229,255,.35)';ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.quadraticCurveTo(cx2,cy2,b.x,b.y);ctx.stroke();
+  var t=f.progress,x=(1-t)*(1-t)*a.x+2*(1-t)*t*cx2+t*t*b.x,y=(1-t)*(1-t)*a.y+2*(1-t)*t*cy2+t*t*b.y;
+  ctx.fillStyle='#00e5ff';ctx.shadowColor='#00e5ff';ctx.shadowBlur=8;
+  ctx.beginPath();ctx.arc(x,y,3.5,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
+  ctx.fillStyle='#9fd8ff';ctx.font='8px monospace';ctx.textAlign='center';
+  ctx.fillText(Math.round(f.dist)+'u·'+f.needTicks+'t·'+fmt(f.cost),mx,my-6)})}
+function renderLoop(){
+ if(uiDirty){uiDirty=false;renderAll()}
+ if($('v-map').classList.contains('on'))drawMap();
+ requestAnimationFrame(renderLoop)}
+requestAnimationFrame(renderLoop);
+cv.addEventListener('click',function(e){
+ var r=cv.getBoundingClientRect(),mx=(e.clientX-r.left)*(cv.width/r.width),my=(e.clientY-r.top)*(cv.height/r.height),hit=null;
+ PLANETS.forEach(function(p){var pos=planetPos(p);if(Math.hypot(mx-pos.x,my-pos.y)<(p.orbit?26:36)*Math.max(S(),.6))hit=p});
+ if(hit){state.selPlanet=hit.id;
+  var crew=state.agents.filter(function(a){return a.planet===hit.id});
+  var near=PLANETS.filter(function(p){return p.id!==hit.id}).map(function(p){var d=orbDist(hit.id,p.id);return{name:p.name,d:Math.round(d),t:transitTicks(d)}}).sort(function(a,b){return a.d-b.d}).slice(0,3);
+  var inv=state.inv[hit.id]||{};
+  sheet.style.display='block';
+  sheet.innerHTML='<b style="color:'+hit.color+'">'+esc(hit.name)+'</b><div class="meta">'+esc(hit.desc)+'</div>'+
+   '<div class="chain">STOCK: '+(Object.keys(RES).map(function(r){return (inv[r]||0)+'×'+RES[r].tag}).join(' · ')||'empty')+'</div>'+
+   '<div class="chain">NEAREST: '+near.map(function(n){return esc(n.name.split(' ')[0])+' '+n.d+'u/'+n.t+'t'}).join(' · ')+'</div>'+
+   (crew.length?crew.map(function(a){return '<button class="pbtn" data-cid="'+a.id+'"><span>'+a.persona.em+'</span>'+esc(a.name)+' — '+esc(a.task)+'</button>'}).join(''):'<div class="meta">No agents here.</div>');
+  sheet.querySelectorAll('[data-cid]').forEach(function(b){b.onclick=function(){openChat(b.dataset.cid)}})}
+ else sheet.style.display='none'});
+/* UI sync — event-driven */
+function showView(v){
+ document.querySelectorAll('.view').forEach(function(x){x.classList.remove('on')});
+ $('v-'+v).classList.add('on');
+ document.querySelectorAll('nav button').forEach(function(b){b.classList.toggle('on',b.dataset.v===v)});
+ if(v==='map')sizeMap()}
+document.querySelectorAll('nav button').forEach(function(b){b.onclick=function(){showView(b.dataset.v)}});
+function renderKPIs(){$('kpis').innerHTML=[['REV',fmt(state.revenue)],['M2M',fmt(state.m2mVolume)],['ASSETS',state.assetsProduced],['FLEET',state.flights.length+'/'+state.ships],['CREDITS',fmt(state.credits)]].map(function(k){return '<div class="kpi"><small>'+k[0]+'</small><b>'+k[1]+'</b></div>'}).join('')}
+function renderAgents(){
+ $('agentList').innerHTML='<div class="sect">ROSTER — '+state.agents.length+' UNITS</div>'+
+  state.agents.map(function(a){
+   var st=a.blocked?'blocked':a.status;
+   return '<div class="card" data-id="'+a.id+'"><div class="row1"><span class="name">'+a.persona.em+' '+esc(a.name)+'</span><span class="st '+st+'">'+st.toUpperCase()+'</span></div>'+
+    '<div class="meta">'+a.id+' · '+esc(a.role)+' · 🪐 '+esc(P[a.planet].name)+' · '+AUTON[a.autonomy]+'</div>'+
+    '<div class="meta">⚙ '+esc(a.task)+'</div>'+
+    '<div class="bar"><i style="width:'+a.energy+'%;background:var(--green)"></i><i style="width:'+clamp(a.progress/Math.max(a.needTicks,1)*100,0,100)+'%;background:var(--cyan)"></i></div>'+
+    '<div class="meta">⚡'+Math.round(a.energy)+'% · 💳'+fmt(a.credits)+' · 🏅'+a.completed+' · 🎓LV'+skillLvl(a,a.planet)+(a.traits.length?' · ☣'+esc(a.traits.join('/')):'')+'</div></div>'}).join('');
+ $('agentList').querySelectorAll('.card[data-id]').forEach(function(c){c.onclick=function(){openChat(c.dataset.id)}})}
+function renderFeed(){
+ if(!$('v-feed').classList.contains('on'))return;
+ $('feedList').innerHTML=state.feed.slice(0,60).map(function(e){return '<div class="ev t-'+e.type+'"><span class="ts">'+e.t+'</span>'+ebr(e.text)+'</div>'}).join('')}
+function renderOps(){
+ $('opsBody').innerHTML='<div class="sect">FLEET OPS</div><div class="grid2">'+
+  '<button id="btnShip">🛠 SHIP<br>1,200 cr</button><button id="btnWarp">🚀 WARP '+state.warpLevel+'<br>'+(2000*state.warpLevel)+' cr</button>'+
+  '<button id="btnDispatch">📡 DISPATCH</button><button id="btnAudit">🔍 AUDIT</button></div>'+
+  '<div class="sect">TOOLKIT</div><button class="primary" id="btnDlLatest" style="width:100%;margin-bottom:8px">💾 DOWNLOAD LATEST DELIVERABLE (.md)</button>'+
+  '<div class="sect">CREATE AGENT</div><div class="card"><input id="newName" placeholder="Agent name…" style="margin-bottom:8px">'+
+  '<select id="newRole">'+Object.keys(ROLES).map(function(p){return '<option value="'+p+'">'+ROLES[p]+' → '+P[p].name+'</option>'}).join('')+'</select>'+
+  '<select id="newPersona" style="margin-top:8px">'+PERSONAS.map(function(p){return '<option value="'+p.id+'">'+p.em+' '+p.name+'</option>'}).join('')+'</select>'+
+  '<select id="newAuton" style="margin-top:8px">'+[1,2,3].map(function(k){return '<option value="'+k+'">'+AUTON[k]+'</option>'}).join('')+'</select>'+
+  '<button class="primary" id="btnCreate" style="width:100%;margin-top:10px">✦ CREATE</button></div>'+
+  '<div class="sect">SUPPLY CHAIN</div>'+
+  PLANETS.filter(function(p){return (p.consumes&&p.consumes.length)||(p.produces&&p.produces.length)}).map(function(p){
+   var st=state.inv[p.id]||{},cnt=Object.keys(RES).filter(function(r){return (st[r]||0)>0}).map(function(r){return st[r]+'×'+RES[r].tag}).join(' ')||'empty';
+   var ch=((p.consumes||[]).map(function(r){return RES[r].tag}).join('+')||'—')+' → '+((p.produces||[]).map(function(r){return RES[r].tag}).join('+')||'SALE');
+   var sh=(p.consumes||[]).some(function(r){return !(st[r]>0)});
+   return '<div class="card"><div class="row1"><span class="name">'+esc(p.name)+'</span><span class="chain">'+ch+'</span></div><div class="meta" style="color:'+(sh?'var(--red)':'var(--dim)')+'">'+(sh?'⚠ SHORTAGE · ':'')+cnt+'</div></div>'}).join('')+
+  '<div class="sect">MARKETPLACE</div>'+
+  (state.assets.length?state.assets.slice(-10).reverse().map(function(a){
+   return '<div class="card"><div class="row1"><span>'+esc(a.name)+'</span><span style="color:'+(a.status==='sold'?'var(--green)':'var(--cyan)')+';font-size:11px">'+fmt(a.price)+' '+a.status.toUpperCase()+'</span></div><div class="meta">by '+esc(a.creator)+'</div><button class="pbtn" data-dl="'+a.id+'">💾 DOWNLOAD (.md)</button></div>'}).join(''):'<div class="empty">No IP yet.</div>')+
+  '<div class="sect">EXPORT / RESET</div><button class="primary" id="btnExport" style="width:100%;margin-bottom:8px">⬇ EXPORT STATE (JSON)</button><button class="warn" id="btnReset" style="width:100%">⚠️ RESET ALL</button>';
+ $('btnShip').onclick=function(){if(state.credits<1200){feed('flag','🛠 Need 1,200 cr.');return}state.credits-=1200;state.ships++;feed('sys','🛠 Fleet → '+state.ships)};
+ $('btnWarp').onclick=function(){var c=2000*state.warpLevel;if(state.credits<c){feed('flag','🚀 Need '+c+' cr.');return}state.credits-=c;state.warpLevel+=0.5;feed('sys','🚀 Warp LV '+state.warpLevel)};
+ $('btnDispatch').onclick=function(){
+  var q=state.agents.filter(function(a){return a.status==='queued'}),pool=q.length?q:state.agents.filter(function(a){return a.status!=='traveling'});
+  if(!pool.length||state.flights.length>=state.ships){feed('flag','📡 No agent or free ship.');return}
+  requestTravel(pool[0],pick(PLANETS.filter(function(p){return p.id!==pool[0].planet})).id)};
+ $('btnAudit').onclick=function(){runAudit()};
+ $('btnDlLatest').onclick=function(){TOOLS.export_deliverable(null,'')};
+ $('opsBody').querySelectorAll('[data-dl]').forEach(function(b){b.onclick=function(){TOOLS.export_deliverable(null,b.dataset.dl)}});
+ $('btnCreate').onclick=function(){
+  var name=$('newName').value.trim()||('UNIT-'+Math.round(rand(100,999))),rk=$('newRole').value,pk=$('newPersona').value;
+  spawnAgent(name.toUpperCase(),rk,rk,PERSONAS.filter(function(p){return p.id===pk})[0],+$('newAuton').value);
+  showView('agents')};
+ $('btnExport').onclick=function(){
+  download('orbital-command-export.json',JSON.stringify({schemaVersion:SCHEMA_VERSION,at:new Date().toISOString(),metrics:{revenue:state.revenue,m2m:state.m2mVolume,assets:state.assetsProduced},agents:state.agents,inventory:state.inv,assets:state.assets,trades:state.trades,feed:state.feed.slice(0,50)},null,2));
+  feed('sys','⬇ State exported')};
+ $('btnReset').onclick=function(){if(confirm('Reset everything?')){localStorage.removeItem(STORAGE_KEY);localStorage.removeItem(LEGACY_KEY);location.reload()}}}
+function renderAll(){
+ renderKPIs();
+ if($('v-agents').classList.contains('on'))renderAgents();
+ if($('v-feed').classList.contains('on'))renderFeed();
+ if($('v-ops').classList.contains('on'))renderOps();
+ if($('v-chat').classList.contains('on'))renderChat()}
+['tick','task_complete','sale','m2m_trade','inventory','agent_travel','trait','level_up','trait_cleared','audit','state_loaded','agent_spawn','export'].forEach(function(ev){Bus.on(ev,function(){uiDirty=true})});
+/* chat */
+function openChat(agentId){
+ var a=state.agents.find(function(x){return x.id===agentId});if(!a)return;
+ state.selAgent=agentId;
+ $('chatHead').innerHTML='<b>'+a.persona.em+' '+esc(a.name)+'</b> <span style="color:var(--dim);font-size:10px">['+a.id+']</span><div class="meta">'+esc(a.role)+' · 🪐 '+esc(P[a.planet].name)+' · ⚡'+Math.round(a.energy)+'% · 🎓LV'+skillLvl(a,a.planet)+' · '+AUTON[a.autonomy]+(a.traits.length?' · ☣'+esc(a.traits.join('/')):'')+'</div>';
+ if(!state.chats[a.id].length)state.chats[a.id].push({who:'agent',n:a.name,text:a.persona.em+' '+a.persona.line+' On '+P[a.planet].name+'. Orders?'});
+ renderChat();showView('chat')}
+function renderChat(){
+ var log=$('chatLog'),m=state.selAgent?state.chats[state.selAgent]:[];
+ log.innerHTML=m.map(function(x){return '<div class="msg '+x.who+'">'+(x.who==='agent'?'<div class="who">'+esc(x.n)+'</div>':'')+ebr(x.text)+'</div>'}).join('');
+ log.scrollTop=log.scrollHeight}
+function statusLine(a){return '📋 '+P[a.planet].name+' LV'+skillLvl(a,a.planet)+' · "'+a.task+'" ('+Math.round(a.progress)+'/'+a.needTicks+') · ⚡'+Math.round(a.energy)+'% · 🏅'+a.completed+' · 💳'+fmt(a.credits)+(a.traits.length?' · ☣'+a.traits.join('/'):'')}
+function fallbackReply(a,txt){
+ var t=txt.toLowerCase(),hit=null;
+ for(var i=0;i<PLANETS.length;i++){if(t.indexOf(PLANETS[i].name.toLowerCase().split(' ')[0])>-1||t.indexOf(PLANETS[i].id)>-1){hit=PLANETS[i];break}}
+ if(t.indexOf('status')>-1||t.indexOf('report')>-1)return statusLine(a);
+ if(hit){requestTravel(a,hit.id);return '🛸 Requesting transit to '+hit.name+'.'}
+ if(t.indexOf('audit')>-1){runAudit();return '🔍 Audit run — see FEED.'}
+ if(t.indexOf('trade')>-1){m2mLocal();return '🔁 Trade executed — see FEED.'}
+ if(t.indexOf('export')>-1)return TOOLS.export_deliverable(a,'');
+ if(t.indexOf('work')>-1||t.indexOf('task')>-1){if(a.status!=='working')assignTask(a);return '⚙ Task: "'+a.task+'"'}
+ return a.persona.line+' '+statusLine(a)}
+var chatBusy=false;
+function sendChat(){
+ var txt=$('chatText').value.trim();
+ if(!txt||!state.selAgent||chatBusy)return;
+ var a=state.agents.find(function(x){return x.id===state.selAgent});if(!a)return;
+ state.chats[a.id].push({who:'user',text:txt});$('chatText').value='';renderChat();
+ if((AI_CONFIG.apiKey||AI_CONFIG.proxy)&&!AI_CONFIG.simMode){
+  chatBusy=true;$('btnSend').disabled=true;
+  enqueue(async function(){
+   try{
+    var hist=state.chats[a.id].slice(-7,-1).map(function(m){return (m.who
