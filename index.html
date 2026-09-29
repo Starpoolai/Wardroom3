@@ -775,5 +775,260 @@ setInterval(function(){
 OC.Bus.on('task_complete',function(d){if(d&&(d.agent==='MIDAS'||d.agent==='AURA'))audit(d.agent,'R_TASK','pass','deliverable produced via core economy')});
 /* [UI — SUITE tab injection] */
 var vs=document.createElement('section');vs.className='view';vs.id='v-suite';   
+ <!-- ═══ ORBITAL COMMAND v7 EXPANSION · PART 1/2 · paste before </body> ═══ -->
+<script>
+(function(){
+'use strict';
+var OC=window.OC;
+if(!OC||!OC.spawnAgent){console.warn('[OC7] v5 core missing — expansion idle');return}
+function $(id){return document.getElementById(id)}
+function usd(n){return '$'+Math.round(n).toLocaleString()}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function ebr(s){return esc(s).replace(/\n/g,'<br>')}
+function dl(name,text){var b=new Blob([text],{type:'text/plain;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click()}
+function LS(k,d){try{var v=JSON.parse(localStorage.getItem(k)||'null');return v==null?d:v}catch(e){return d}}
+function SS(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+/* ── expansion state (OC7_*, replaces OC6) ── */
+var X={cfg:LS('OC7_CFG',{model:'gemini-2.0-flash',autoCap:25,style:'tactical'}),
+ vault:{open:false,key:null,data:{creds:[]}},meta:LS('OC7_META',[]),
+ chats:LS('OC7_CHATS',{}),hist:LS('OC7_HIST',[]),quirks:LS('OC7_QUIRKS',{}),
+ grants:LS('OC7_GRANTS',{}),rep:LS('OC7_REP',{}),since:LS('OC7_SINCE',{}),
+ products:LS('OC7_PRODUCTS',[]),ledger:LS('OC7_LEDGER',[]),audit:LS('OC7_AUDIT',[]),
+ acts:LS('OC7_ACTS',[]),feedPause:false,feedFilter:{},feedSearch:'',tab:'roster',batch:[]};
+function save(k){SS('OC7_'+k.toUpperCase(),X[k])}
+function log(type,text){X.acts.unshift({t:new Date().toLocaleTimeString(),type:type,text:String(text)});if(X.acts.length>150)X.acts.pop();save('acts')}
+function audit(agentId,rule,verdict,detail){X.audit.unshift({ts:Date.now(),agentId:agentId,rule:rule,verdict:verdict,detail:String(detail)});if(X.audit.length>200)X.audit.pop();save('audit')}
+/* ── [KEYRING v2 — multiple credentials, multiple logins, AES-256-GCM] ── */
+function b64(b){return btoa(String.fromCharCode.apply(null,new Uint8Array(b)))}
+function ub64(s){return Uint8Array.from(atob(s),function(c){return c.charCodeAt(0)})}
+async function deriveKey(pass,salt){var km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:150000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
+async function vaultSetup(pass){var salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));var k=await deriveKey(pass,salt);var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},k,new TextEncoder().encode(JSON.stringify({creds:[]})));localStorage.setItem('OC7_VAULT',JSON.stringify({salt:b64(salt),iv:b64(iv),ct:b64(ct)}));X.vault={open:true,key:k,data:{creds:[]}};log('sys','🔐 Keyring v2 initialized');syncMeta();renderSuite()}
+async function vaultUnlock(pass){var raw=LS('OC7_VAULT',null);if(!raw)return false;try{var k=await deriveKey(pass,ub64(raw.salt));var pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:ub64(raw.iv)},k,ub64(raw.ct));X.vault={open:true,key:k,data:JSON.parse(new TextDecoder().decode(pt))};log('sys','🔓 Unlocked — '+X.vault.data.creds.length+' credentials');return true}catch(e){return false}}
+async function vaultPersist(){if(!X.vault.open)return;var raw=LS('OC7_VAULT',null),iv=crypto.getRandomValues(new Uint8Array(12));var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},X.vault.key,new TextEncoder().encode(JSON.stringify(X.vault.data)));raw.iv=b64(iv);raw.ct=b64(ct);localStorage.setItem('OC7_VAULT',JSON.stringify(raw))}
+function syncMeta(){X.meta=X.vault.data.creds.map(function(c){return{id:c.id,platform:c.platform,label:c.label,status:c.status,addedAt:c.addedAt,logins:c.logins.length}});save('meta')}
+function addCred(platform,label,scopes){if(!X.vault.open)return 'E_VAULT_LOCKED';var c={id:'crd_'+Date.now().toString(36),platform:platform,label:label||platform,status:'active',addedAt:Date.now(),scopes:(scopes||'').split(',').filter(Boolean),logins:[]};X.vault.data.creds.push(c);vaultPersist();syncMeta();audit('VAULT','CRED_ADD','pass',platform);log('sys','🔑 '+platform+' credential created');return c.id}
+function addLogin(credId,username,secret,mfa){var c=X.vault.data.creds.filter(function(x){return x.id===credId})[0];if(!c)return 'E_NO_CRED';if(!username||!secret)return 'E_VALIDATION missing:username/secret';c.logins.push({id:'log_'+Date.now().toString(36),username:username,secret:secret,mfa:mfa||null});vaultPersist();syncMeta();audit('VAULT','LOGIN_ADD','pass',c.platform+'/'+username);return 'ok'}
+function delCred(id){X.vault.data.creds=X.vault.data.creds.filter(function(c){return c.id!==id});vaultPersist();syncMeta();renderSuite()}
+function hasCred(p){return X.vault.open&&X.vault.data.creds.some(function(c){return c.platform===p&&c.status==='active'&&c.logins.length})}
+function geminiKey(){if(!X.vault.open)return null;var c=X.vault.data.creds.filter(function(x){return x.platform==='gemini'&&x.status==='active'})[0];return c&&c.logins[0]?c.logins[0].secret:null}
+/* ── [SUITE AGENTS + dynamic personalities] ── */
+var SUITE=[{key:'fin',name:'MIDAS',roleKey:'m2m',planetId:'m2m',persona:{em:'📈',name:'Strategist',line:'Alpha compounds daily.'},base:'You are MIDAS, a data-driven financial strategist agent. Numbers-first, concise. ALWAYS include "Not financial advice." in advice or products.'},
+ {key:'well',name:'AURA',roleKey:'pleasure',planetId:'pleasure',persona:{em:'🌿',name:'Mentor',line:'Wellness is a system.'},base:'You are AURA, an empathetic holistic wellness mentor. Supportive and practical; never diagnose or prescribe. ALWAYS include "Wellness guidance, not medical advice."'}];
+var STYLES={tactical:'Terse, bullet-style, mission-focused.',diplomatic:'Warm, collaborative, diplomatic.',dramatic:'Cinematic and bold.',concise:'Maximum 15 words per reply.'};
+var QUIRK_POOL=['hyper-punctual','market-conspiracy curious','poetic under pressure','hyper-competitive','zen-like calm','sarcastic wit','obsessive note-taker','eternal optimist','dry humor','risk-averse by principle'];
+function ensureAgents(){SUITE.forEach(function(s){
+ if(!OC.state.agents.some(function(a){return a.name===s.name})){OC.spawnAgent(s.name,s.roleKey,s.planetId,s.persona,3);log('sys','🆕 '+s.name+' deployed on '+s.planetId)}
+ if(!X.since[s.name]){X.since[s.name]=Date.now();save('since')}})}
+function sysFor(s){var q=X.quirks[s.key]||[];return s.base+'\nResponse style: '+X.cfg.style+' — '+STYLES[X.cfg.style]+'.'+(q.length?'\nPersonality quirks: '+q.join('; ')+'.':'')}
+function rollQuirks(key){var pool=QUIRK_POOL.slice(),q=[];for(var i=0;i<2;i++){q.push(pool.splice(Math.floor(Math.random()*pool.length),1)[0])}X.quirks[key]=q;save('quirks');var s=SUITE.filter(function(x){return x.key===key})[0];log('sys','🎲 '+s.name+' rerolled: '+q.join(' + '));audit(s.name,'R_QUIRK','pass',q.join(','))}
+/* ── [LLM mini-engine — queue + backoff + vault key] ── */
+var Q2={list:[],busy:false};
+function q2(job){Q2.list.push(job);if(Q2.list.length>6)Q2.list.shift();pump2()}
+async function pump2(){if(Q2.busy)return;Q2.busy=true;while(Q2.list.length){try{await Q2.list.shift()()}catch(e){log('flag','⚠ '+(e.message||e))}}Q2.busy=false}
+async function geminiJSON(sys,user,schema){
+ var key=geminiKey();if(!key)throw new Error('E_NO_GEMINI_KEY — add a gemini login in VAULT');
+ var body={contents:[{role:'user',parts:[{text:user}]}],systemInstruction:{parts:[{text:sys}]},generationConfig:{responseMimeType:'application/json',maxOutputTokens:400}};
+ if(schema)body.generationConfig.responseSchema=schema;
+ var r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+X.cfg.model+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify(body)});
+ if(r.status===429||r.status>=500)throw new Error('E_HTTP_'+r.status+' (retryable)');
+ if(!r.ok)throw new Error('E_HTTP_'+r.status);
+ var d=await r.json(),t=d.candidates&&d.candidates[0]&&d.candidates[0].content&&d.candidates[0].content.parts[0].text;
+ return t?JSON.parse(t):null}
+var CHAT2_SCHEMA={type:'OBJECT',properties:{message:{type:'STRING'},action:{type:'OBJECT',properties:{name:{type:'STRING',enum:['generate_product','crypto','fx','none']},param:{type:'STRING'}}}},required:['message']};
+var TOOLS2={crypto:async function(p){try{var r=await fetch('https://api.coinbase.com/v2/prices/'+(p||'BTC-USD')+'/spot'),d=await r.json();return d.data?(p||'BTC-USD')+' = '+d.data.amount:'unavailable'}catch(e){return 'E_RAIL_UNAVAILABLE'}},
+ fx:async function(b,q){try{var r=await fetch('https://api.frankfurter.app/latest?from='+(b||'USD')+'&to='+(q||'EUR')),d=await r.json();return d.rates?(b||'USD')+'→'+(q||'EUR')+' = '+d.rates[q||'EUR']:'unavailable'}catch(e){return 'E_RAIL_UNAVAILABLE'}}};
+/* ── [PRODUCTS + COMPLIANCE + FINANCE] ── */
+var PROD_SCHEMA={type:'OBJECT',properties:{title:{type:'STRING'},body:{type:'STRING'},price:{type:'NUMBER'}},required:['title','body','price']};
+var PROD_PROMPTS={fin:'Create a compact personal-finance digital product (checklist/mini-guide, under 300 words). title, body, fair price USD. End body with "Not financial advice."',
+ well:'Create a holistic wellness product (7-day plan, under 300 words, no medical claims). title, body, fair price. End body with "Wellness guidance, not medical advice."'};
+function complianceCheck(p,s){var fl=[],b=p.body.toLowerCase();
+ if(s.key==='fin'&&!/not financial advice/.test(b))fl.push('R1_MISSING_DISCLOSURE');
+ if(s.key==='well'&&!/not medical advice/.test(b))fl.push('R2_MISSING_DISCLOSURE');
+ if(/guaranteed|risk-free|get rich|cure|diagnose/.test(b))fl.push('R3_PROHIBITED_CLAIM');
+ p.compliance={checked:true,flags:fl};audit(s.name,'COMPLIANCE',fl.length?'flag':'pass',fl.join(',')||'clean');
+ if(fl.indexOf('R3_PROHIBITED_CLAIM')>-1)p.status='draft';
+ return fl}
+async function toolGenerate(k){var s=SUITE.filter(function(x){return x.key===k})[0];
+ var res=await geminiJSON(sysFor(s),PROD_PROMPTS[k],PROD_SCHEMA);if(!res)throw new Error('E_MODEL_EMPTY');
+ var p={id:'PRD-'+Date.now().toString(36),type:k==='fin'?'ebook':'wellness_plan',title:String(res.title).slice(0,80),body:String(res.body).slice(0,4000),agentId:s.name,price:Math.max(1,Math.min(997,+res.price||9)),createdAt:Date.now(),status:'listed',compliance:{checked:false,flags:[]}};
+ complianceCheck(p,s);X.products.push(p);save('products');
+ log('asset','📦 '+s.name+' produced "'+p.title+'" ('+usd(p.price)+')');return p}
+var ledger=X.ledger;
+function saveLedger(){if(ledger.length>200)ledger=ledger.slice(-200);save('ledger')}
+function balance(){var b=0;ledger.forEach(function(t){if(t.status==='confirmed')b+=(t.type==='income'?t.amount:-t.amount)});return b}
+function payLink(rail,h,a){if(rail==='cashapp')return 'https://cash.me/$'+h+'/'+a;if(rail==='venmo')return 'https://venmo.com/'+h+'?txn=pay&amount='+a;return null}
+function newTx(){
+ var t={type:$('txType').value,rail:$('txRail').value,amount:Math.round((+$('txAmt').value||0)*100)/100,agentId:$('txAgent').value||'MIDAS',memo:$('txMemo').value||''};
+ var h=($('txHandle').value||'').replace(/^@/,'');
+ t.link=payLink(t.rail,h,t.amount);
+ if(t.rail==='zelle')t.error={code:'E_RAIL_UNAVAILABLE',message:'Zelle has no link API — send manually, then confirm',retryable:false};
+ t.currency='USD';t.ts=Date.now();t.id='TX-'+Date.now().toString(36);
+ t.status=t.rail==='internal'?'confirmed':(t.amount<=X.cfg.autoCap?'approved':'pending');
+ ledger.push(t);saveLedger();
+ audit('MIDAS','TX_CREATE',t.status==='pending'?'flag':'pass',t.type+' '+usd(t.amount)+' '+t.rail);
+ log('trade','💳 '+t.type+' '+usd(t.amount)+' '+t.rail+' → '+t.status);renderSuite()}
+function txAction(id,act){var t=ledger.filter(function(x){return x.id===id})[0];if(!t)return;
+ if(act==='approve'&&t.status==='pending')t.status='approved';
+ else if(act==='confirm'&&(t.status==='approved'||t.status==='flagged')){t.status='confirmed';t.error=null;log('sale','✅ '+t.id+' confirmed '+usd(t.amount))}
+ else if(act==='retry'&&t.error&&t.error.retryable){t.status='pending';t.error=null;audit('FIN','TX_RETRY','pass',t.id)}
+ else if(act==='fail'){t.status='failed';t.error={code:'E_USER_MARKED',message:'marked failed',retryable:false}}
+ saveLedger();renderSuite()}
+/* ── [AGENT-TO-AGENT TRANSFERS + REWARDS] ── */
+function transferTask(fromId,toId){
+ var st=OC.state.agents,f=st.filter(function(x){return x.id===fromId})[0],t=st.filter(function(x){return x.id===toId})[0];
+ if(!f||!t||f===t)return log('flag','❌ E_HANDOFF: invalid agent pair');
+ if(t.status==='traveling'||t.status==='queued'){audit('HANDOFF','R_BUSY','block',f.name+'→'+t.name);return log('flag','❌ E_HANDOFF_BUSY: '+t.name+' is '+t.status+' — task retained by '+f.name)}
+ var task=f.task,pr=f.progress,nt=f.needTicks;
+ if(Math.random()<0.2){f.flags=(f.flags||0)+1;audit('HANDOFF','R_FAIL','flag',f.name+'→'+t.name);return log('flag','❌ HANDOFF FAILED '+f.name+' → '+t.name+' (protocol mismatch) — task retained')}
+ t.task=task;t.progress=pr;t.needTicks=nt;t.blocked=!!f.blocked;t.inputRes=f.inputRes;t.status='working';
+ OC.execAction(f,'work','');
+ X.rep[t.id]=(X.rep[t.id]||0)+1;t.credits+=25;f.credits+=15;save('rep');
+ OC.feed('sys','🤝 HANDOFF OK: "'+task+'" '+f.name+' → '+t.name+' · +25/+15 cr · '+t.name+' rep '+X.rep[t.id]);
+ audit('HANDOFF','R_TRANSFER','pass',f.name+'→'+t.name)}
+function grantTool(fromName,toId,tool){X.grants[toId]=X.grants[toId]||[];if(X.grants[toId].indexOf(tool)<0)X.grants[toId].push(tool);save('grants');var t=OC.state.agents.filter(function(x){return x.id===toId})[0];log('sys','🧰 Tool "'+tool+'" granted to '+(t?t.name:toId));audit('TOOLS','R_GRANT','pass',tool)}
+OC.Bus.on('task_complete',function(d){
+ var a=OC.state.agents.filter(function(x){return x.name===d.agent})[0];
+ if(a&&(a.energy||0)>50){X.rep[a.id]=(X.rep[a.id]||0)+1;a.credits+=10;save('rep');log('sys','🏅 '+a.name+' +10 cr — optimal processing bonus (rep '+(X.rep[a.id]||0)+')')}
+ if(d.agent==='MIDAS'||d.agent==='AURA')audit(d.agent,'R_TASK','pass','suite deliverable')});
+/* ── [SUITE CHAT — history, autocomplete, styles, quirks] ── */
+var COMMANDS=['status','travel to','audit','trade','generate product','price check','fx check','work','rest','export'];
+function chatFor(k){if(!X.chats[k])X.chats[k]=[];return X.chats[k]}
+function paintChat(k){var el=$('chat-'+k);if(el)el.innerHTML=chatFor(k).map(function(m){return '<div class="msg '+m.who+'">'+(m.who==='agent'?'<div class="who">'+esc(m.n)+'</div>':'')+ebr(m.text)+'</div>'}).join('')}
+function suiteSend(k){
+ var inp=$('in-'+k),txt=inp.value.trim();if(!txt)return;
+ X.hist.unshift(txt);if(X.hist.length>30)X.hist.pop();save('hist');
+ var chat=chatFor(k);chat.push({who:'user',text:txt});inp.value='';paintChat(k);renderSuggest(k,'');
+ q2(async function(){
+  try{
+   var s=SUITE.filter(function(x){return x.key===k})[0];
+   var hist=chat.slice(-6,-1).map(function(m){return (m.who==='user'?'USER: ':'AGENT: ')+m.text}).join('\n');
+   var res=await geminiJSON(sysFor(s),(hist?hist+'\n\n':'')+'USER: '+txt,CHAT2_SCHEMA);
+   var out=res&&res.message?String(res.message).slice(0,500):'(no response)';
+   var act=res&&res.action&&res.action.name&&res.action.name!=='none'?res.action:null;
+   if(act&&act.name==='generate_product'){var p=await toolGenerate(k);out+='\n⚙ Created: '+p.title+' ('+usd(p.price)+') — FINANCE tab'}
+   else if(act&&act.name==='crypto')out+='\n⚙ '+(await TOOLS2.crypto(act.param));
+   else if(act&&act.name==='fx'){var pp=(act.param||'USD-EUR').split('-');out+='\n⚙ '+(await TOOLS2.fx(pp[0],pp[1]))}
+   if(k==='fin'&&!/not financial advice/i.test(out))out+='\n_Not financial advice._';
+   chat.push({who:'agent',n:s.name,text:out});
+  }catch(e){chatFor(k).push({who:'agent',n:'SYSTEM',text:'⚠ '+(e.message||e)})}
+  save('chats');paintChat(k)})}
+function histNav(k,dir){var inp=$('in-'+k);if(!X.hist.length)return;X.histIdx=(X.histIdx==null?0:Math.max(0,Math.min(X.hist.length-1,X.histIdx+dir)));inp.value=X.hist[X.histIdx]||''}
+function renderSuggest(k,q){var el=$('sug-'+k);if(!el)return;
+ var m=COMMANDS.filter(function(c){return !q||c.indexOf(q.toLowerCase())>-1}).slice(0,4);
+ el.innerHTML=m.map(function(c){return '<button style="margin:2px;padding:4px 8px;font-size:10px" data-s="'+c+'">'+c+'…</button>'}).join('');
+ el.querySelectorAll('[data-s]').forEach(function(b){b.onclick=function(){var inp=$('in-'+k);inp.value=b.dataset.s+' ';inp.focus();renderSuggest(k,b.dataset.s)}})}
+/* ── [SUITE UI] ── */
+var vs=document.createElement('section');vs.className='view';vs.id='v-suite';
+vs.innerHTML='<div class="scroll" id="suiteBody"></div>';
+document.querySelector('main').appendChild(vs);
+var nb=document.createElement('button');nb.dataset.v='suite';nb.innerHTML='<span class="ic">🧬</span>SUITE';
+document.querySelector('nav').appendChild(nb);
+nb.onclick=function(){document.querySelectorAll('.view').forEach(function(x){x.classList.remove('on')});vs.classList.add('on');document.querySelectorAll('nav button').forEach(function(b){b.classList.toggle('on',b===nb)});renderSuite()};
+function tabBtns(){return ['roster','chat','vault','finance','feed','ops'].map(function(t){return '<button style="margin:2px;padding:6px 10px;font-size:10px'+(X.tab===t?';border-color:var(--cyan);color:var(--cyan)':'')+'" data-tab="'+t+'">'+t.toUpperCase()+'</button>'}).join('')}
+function paintUptime(){var now=Date.now();OC.state.agents.forEach(function(a){var el=$('up-'+a.id);if(el)el.textContent=up(a)})}
+function up(a){var s=Math.floor((now()-(X.since[a.name]||now()))/1000);var h=Math.floor(s/3600),m=Math.floor(s%3600/60);return (h?h+'h ':'')+m+'m'}
+function now(){return Date.now()}
+function renderSuite(){
+ var b=$('suiteBody');if(!b)return;var h='<div style="margin-bottom:8px">'+tabBtns()+'</div>';
+ if(X.tab==='roster')h+=rosterHTML();
+ else if(X.tab==='chat')h+=chatHTML();
+ else if(X.tab==='vault')h+=vaultHTML();
+ else if(X.tab==='finance')h+=financeHTML();
+ else if(X.tab==='feed')h+=feedHTML();
+ else if(X.tab==='ops')h+=opsHTML();
+ b.innerHTML=h;
+ if(X.tab==='roster')bindRoster();
+ if(X.tab==='chat')bindChat();
+ if(X.tab==='vault')bindVault();
+ if(X.tab==='finance')bindFinance();
+ if(X.tab==='feed')bindFeed();
+ if(X.tab==='ops')bindOps();
+ if(X.tab==='chat'){Object.keys(X.chats).forEach(paintChat)}}
+/* roster+: color icons, quick actions, uptime */
+var STATUS_COLOR={working:'var(--green)',traveling:'var(--cyan)',resting:'var(--amber)',queued:'var(--amber)',blocked:'var(--red)'};
+function rosterHTML(){
+ var destSel='<select id="batchDest" style="width:auto;margin:0 6px">'+PLANETS.map(function(p){return '<option value="'+p.id+'">'+p.id+'</option>'}).join('')+'</select>';
+ return '<div class="sect">ROSTER+ — live status · uptime · quick dispatch</div>'+
+  OC.state.agents.map(function(a){
+   var st=a.blocked?'blocked':a.status,col=STATUS_COLOR[st]||'var(--dim)';
+   return '<div class="card"><div class="row1"><span class="name"><span style="color:'+col+'">●</span> '+a.persona.em+' '+esc(a.name)+'</span>'+
+    '<span style="font-size:10px;color:'+col+'">'+st.toUpperCase()+' ⏱ <span id="up-'+a.id+'"></span></span></div>'+
+    '<div class="meta">'+a.id+' · 🪐 '+esc(a.planet)+' · ⚡'+Math.round(a.energy)+'% · 🏅'+a.completed+' · 📈'+a.productivity+'% · 🎓LV'+skillLvl(a,a.planet)+(a.traits&&a.traits.length?' · ☣'+esc(a.traits.join('/')):'')+' · ⭐rep '+(X.rep[a.id]||0)+'</div>'+
+    '<div class="bar"><i style="width:'+a.energy+'%;background:var(--green)"></i><i style="width:'+clamp(a.progress/Math.max(a.needTicks,1)*100,0,100)+'%;background:var(--cyan)"></i></div>'+
+    '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'+
+    '<button style="padding:6px 9px;font-size:10px" data-qa="work" data-id="'+a.id+'">⚙ WORK</button>'+
+    '<button style="padding:6px 9px;font-size:10px" data-qa="go" data-id="'+a.id+'">🚀 GO'+destSel.replace('id="batchDest"','class="qa-dest" data-id="'+a.id+'" style="width:auto;padding:4px"')+'</button>'+
+    '<button style="padding:6px 9px;font-size:10px" data-qa="rest" data-id="'+a.id+'">😴 REST</button>'+
+    '<button style="padding:6px 9px;font-size:10px" data-qa="audit" data-id="'+a.id+'">🔍 AUDIT</button>'+
+    '<button style="padding:6px 9px;font-size:10px" data-qa="xfer" data-id="'+a.id+'">🤝 HANDOFF</button></div></div>'}).join('')}
+function bindRoster(){
+ paintUptime();
+ $('suiteBody').querySelectorAll('[data-qa]').forEach(function(b){b.onclick=function(){
+  var a=OC.state.agents.filter(function(x){return x.id===b.dataset.id})[0];if(!a)return;
+  var qa=b.dataset.qa;
+  if(qa==='work')OC.execAction(a,'work','');
+  else if(qa==='go'){var sel=b.parentElement.querySelector('.qa-dest');OC.travel(a,sel?sel.value:pickDest())}
+  else if(qa==='rest'){a.status='resting';a.task='Resting';OC.feed('sys','😴 '+a.name+' standing down to recharge')}
+  else if(qa==='audit')OC.audit();
+  else if(qa==='xfer'){var to=prompt('Handoff "'+a.task+'" to agent ID (e.g. A-003):');if(to)transferTask(a.id,to)}
+ }})}
+function pickDest(){return PLANETS[Math.floor(Math.random()*PLANETS.length)].id}
+/* feed+: filters, search, metrics, scroll control */
+var FEED_TYPES=['sys','flag','trade','sale','asset'];
+function feedHTML(){
+ var counts={};FEED_TYPES.forEach(function(t){counts[t]=OC.state.feed.filter(function(e){return e.type===t}).length});
+ var q=X.feedSearch.toLowerCase();
+ var list=OC.state.feed.filter(function(e){return (!X.feedFilter[e.type])&&(!q||e.text.toLowerCase().indexOf(q)>-1)});
+ return '<div class="sect">FEED+ — '+list.length+' shown · '+OC.state.feed.length+' total</div>'+
+  '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">'+
+  FEED_TYPES.map(function(t){return '<button style="padding:5px 9px;font-size:10px;'+(X.feedFilter[t]?'opacity:.4':'')+'" data-ft="'+t+'">'+t+' ('+counts[t]+')</button>'}).join('')+
+  '<button style="padding:5px 9px;font-size:10px" id="feedPause">'+(X.feedPause?'▶ RESUME SCROLL':'⏸ PAUSE SCROLL')+'</button>'+
+  '<button style="padding:5px 9px;font-size:10px" id="feedTop">⬆ TOP</button></div>'+
+  '<input id="feedSearch" placeholder="Search feed…" value="'+esc(X.feedSearch)+'" style="margin-bottom:8px">'+
+  '<div id="feedList2">'+list.slice(0,80).map(function(e){return '<div class="ev t-'+e.type+'"><span class="ts">'+e.t+'</span>'+ebr(e.text)+'</div>'}).join('')+'</div>'}
+function bindFeed(){
+ $('suiteBody').querySelectorAll('[data-ft]').forEach(function(b){b.onclick=function(){X.feedFilter[b.dataset.ft]=!X.feedFilter[b.dataset.ft];renderSuite()}});
+ $('feedPause').onclick=function(){X.feedPause=!X.feedPause;renderSuite()};
+ $('feedTop').onclick=function(){var el=$('feedList2');if(el)el.scrollIntoView()};
+ var s=$('feedSearch');if(s)s.oninput=function(){X.feedSearch=s.value;paintFeed()}}
+function paintFeed(){var el=$('feedList2');if(!el)return;var q=X.feedSearch.toLowerCase();
+ el.innerHTML=OC.state.feed.filter(function(e){return (!X.feedFilter[e.type])&&(!q||e.text.toLowerCase().indexOf(q)>-1)}).slice(0,80).map(function(e){return '<div class="ev t-'+e.type+'"><span class="ts">'+e.t+'</span>'+ebr(e.text)+'</div>'}).join('')}
+/* ops+: supply viz, batch processing, progress */
+function opsHTML(){
+ var inv=OC.economy.inventory();
+ var maxR=Math.max.apply(null,Object.keys(RES).map(function(r){return totalInv(r)}))||1;
+ var h='<div class="sect">SUPPLY CHAIN — planetary stock (click ops bar = full inventory)</div>';
+ h+=PLANETS.filter(function(p){return (p.consumes&&p.consumes.length)||(p.produces&&p.produces.length)}).map(function(p){
+  var st=inv[p.id]||{},tot=Object.keys(RES).reduce(function(s,r){return s+(st[r]||0)},0);
+  var ch=((p.consumes||[]).map(function(r){return RES[r].tag}).join('+')||'—')+' → '+((p.produces||[]).map(function(r){return RES[r].tag}).join('+')||'SALE');
+  return '<div class="card"><div class="row1"><span class="name">'+esc(p.name)+'</span><span class="chain">'+ch+'</span></div>'+
+   '<div class="bar"><i style="width:'+clamp(tot/maxR*100,3,100)+'%;background:var(--violet)"></i></div>'+
+   '<div class="meta">'+Object.keys(RES).map(function(r){return (st[r]||0)+'×'+RES[r].tag}).join(' · ')+'</div></div>'}).join('');
+ h+='<div class="sect">BATCH DISPATCH — queue N agents to a world</div><div class="card">'+
+  '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">AGENTS <input id="batchN" type="number" min="1" max="8" value="3" style="width:60px"> → '+
+  '<select id="batchDest2" style="width:auto">'+PLANETS.map(function(p){return '<option value="'+p.id+'">'+p.id+'</option>'}).join('')+'</select>'+
+  '<button class="primary" id="batchGo">📦 DISPATCH BATCH</button></div>'+
+  (X.batch.length?'<div class="meta" style="margin-top:6px">'+X.batch.map(function(x,i){return (x.ok===null?'⏳':(x.ok?'✅':'❌'))+' '+esc(x.name)}).join(' · ')+'</div>':'')+'</div>';
+ return h}
+function totalInv(res){return PLANETS.reduce(function(s,p){return s+((OC.economy.inventory()[p.id]||{})[res]||0)},0)}
+function bindOps(){$('batchGo').onclick=batchDispatch}
+function batchDispatch(){
+ var dest=($('batchDest2')||{}).value||pickDest(),n=Math.min(8,+$('batchN').value||1);
+ var pool=OC.state.agents.filter(function(a){return a.status!=='traveling'}).slice(0,n);
+ X.batch=pool.map(function(a){return{name:a.name,ok:null}});renderSuite();
+ pool.forEach(function(a,i){setTimeout(function(){X.batch[i].ok=!!OC.travel(a,dest);log('sys','📦 batch['+(i+1)+'/'+pool.length+'] '+a.name+' → '+dest+': '+(X.batch[i].ok?'launched':'queued/denied'));renderSuite()},i*400)})}
+/* vault tab */
+function vaultHTML(){
+ if(!X.vault.open){
+  return '<div class="sect">KEYRING v2 — LOCKED</div><div class="card">'+
+  '<div class="meta">AES-256-GCM · passphrase-derived · multiple credentials & logins per platform</div>'+
+  (LS('OC7_VAULT',null)?'<input id="vp" type="password" placeholder="Passphrase" style="margin:8px 0"><button class="primary" id="vUnlock" style="width:100%">🔓 UNLOCK</button>':'<input id="vp" type="password" placeholder="Create passphrase" style="margin:8px 0"><button class="primary" id="vSetup" style="width:100%">🔐 INITIALIZE KEYRING</button>')+'</div>'+
+  '<div class="meta" style="margin-top:6px">Stored locally, encrypted. For production, route model calls through a server-side proxy — browser storage is never bank-grade.</div>';
+ }
+ return '<div class="sect">KEYRING v2 — '+X.vault.data.creds.length+' credentials</div>'+
+  '<div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap">'+
+  '<select id="credPlatform" style="width:auto">'+['gemini','instagram','youtube','tiktok','facebook','cashapp','venmo','other'].map(function(p){return '<option>'+p+'</option>'}).join('')+'</select>'+
+  '<input id="credLabel" placeholder="Label" style="flex:1;min-width:90px">'+
+  '<button class="primary" id="credAdd">+ C  
 </body>
 </html>
