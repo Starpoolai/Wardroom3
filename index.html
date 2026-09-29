@@ -1376,7 +1376,183 @@ log('sys','🏛 V6 MASTER online — committee · owner approval gate · keyboar
 window.OC7={X:X,transferTask:transferTask,grantTool:grantTool,addCred:addCred,addLogin:addLogin,sellProduct:sellProduct,tools:TOOLS2,map:MAP,
  queue:X.queue,releaseItem:releaseItem,rejectItem:rejectItem,ownerCommand:ownerCommand,
  ingestTelemetry:ingestTelemetry,ingestQueue:ingestQueue,notifyBadge:notifyBadge};
+  g.fillStyle='#9fd8ff';lines.forEach(function(l,i){g.fillText(l,x,y+i*12)})}
+ hud(10,18,['RAW · TR '+((inv.rnd||{}).trend||0)+' · DA '+((inv.rnd||{}).data||0),'IP '+((inv.ebook||{}).ip||0)+' · PW '+((inv.influencer||{}).persona||0)]);
+ hud(c.width-120,18,['DM '+((inv.social||{}).demand||0),'MKT IP '+((inv.market||{}).ip||0)+' · D '+((inv.market||{}).demand||0)]);
+ hud(10,c.height-30,['FLEET '+OC.state.flights.length+'/'+OC.state.ships,'CR '+usd(OC.state.credits)]);
+ hud(c.width-120,c.height-30,['AGENTS '+OC.state.agents.length,'ZOOM ×'+z.toFixed(2)]);
+}
+/* ═══ MODULE 3 · UI EXTENSION — keyboard focus lock · committee drawer · owner approval ═══ */
+var focusLock=null;
+document.addEventListener('touchstart',function(e){
+ var t=e.target&&e.target.closest?e.target.closest('input,textarea'):null;
+ if(t){e.preventDefault();focusLock=t;t.focus()}},{passive:false});
+document.addEventListener('mousedown',function(e){
+ var t=e.target&&e.target.closest?e.target.closest('input,textarea'):null;
+ if(t&&document.activeElement!==t){e.preventDefault();focusLock=t;t.focus()}},true);
+document.addEventListener('focusin',function(e){
+ if(e.target&&e.target.matches&&e.target.matches('input,textarea'))focusLock=e.target});
+function restoreFocus(prevId){if(prevId){var el=document.getElementById(prevId);
+ if(el&&el.matches&&el.matches('input,textarea')){el.focus();focusLock=el}}}
+/* override tab bar + renderer: adds COMMITTEE + APPROVE tabs · restores keyboard focus after re-renders */
+function tabBtns(){return ['roster','chat','vault','finance','feed','ops','map','committee','approve'].map(function(t){
+ return '<button style="margin:2px;padding:6px 10px;font-size:10px'+(X.tab===t?';border-color:var(--cyan);color:var(--cyan)':'')+'" data-tab="'+t+'">'+t.toUpperCase()+'</button>'}).join('')}
+function renderSuite(){
+ var b=$('suiteBody');if(!b)return;
+ var prevId=document.activeElement&&document.activeElement.id||null;
+ var h='<div style="margin-bottom:8px">'+tabBtns()+'</div>';
+ if(X.tab==='roster')h+=rosterHTML();
+ else if(X.tab==='chat')h+=chatHTML();
+ else if(X.tab==='vault')h+=vaultHTML();
+ else if(X.tab==='finance')h+=financeHTML();
+ else if(X.tab==='feed')h+=feedHTML();
+ else if(X.tab==='ops')h+=opsHTML();
+ else if(X.tab==='map')h+=mapHTML();
+ else if(X.tab==='committee')h+=committeeHTML();
+ else if(X.tab==='approve')h+=approveHTML();
+ b.innerHTML=h;
+ if(X.tab==='roster')bindRoster();
+ if(X.tab==='chat')bindChat();
+ if(X.tab==='vault')bindVault();
+ if(X.tab==='finance')bindFinance();
+ if(X.tab==='feed')bindFeed();
+ if(X.tab==='ops')bindOps();
+ if(X.tab==='map')bindMap();
+ if(X.tab==='committee')bindCommittee();
+ if(X.tab==='approve')bindApprove();
+ if(X.tab==='chat'){Object.keys(X.chats).forEach(paintChat)}
+ restoreFocus(prevId)}
+/* [COMMITTEE DRAWER — telemetry · 5 roles · Billboard Top 100 · schedule · thought stream] */
+var CTEES=[{name:'MARKET ANALYST',em:'📊',role:'Demand gaps · viral trends'},{name:'DEVELOPER',em:'🛠',role:'Builds deliverables'},{name:'COPYWRITER',em:'✍',role:'Sales copy · tier pricing'},{name:'IP SKEPTIC',em:'⚖',role:'Quality & copyright review'},{name:'MUSIC DIRECTOR',em:'🎵',role:'Billboard Top 100 specialist'}];
+var telemetry=LS('OC8_TELEMETRY',{items:[],billboard:[]});
+var schedule=LS('OC8_SCHEDULE',[]);
+X.queue=LS('OC7_QUEUE',[]);
+function committeeHTML(){
+ var n=(telemetry.items||[]).length,tags={};
+ (telemetry.items||[]).forEach(function(i){(i.tags||[]).forEach(function(x){tags[x]=(tags[x]||0)+1})});
+ var top=Object.keys(tags).sort(function(a,b){return tags[b]-tags[a]}).slice(0,5);
+ return '<div class="sect">AGENT COMMITTEE — telemetry-driven</div>'+
+  '<div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
+  '<input id="telFile" type="file" accept=".json" style="max-width:180px">'+
+  '<button id="telPaste" style="padding:6px 9px;font-size:10px">📋 PASTE TELEMETRY JSON</button>'+
+  '<span class="meta">'+n+' items · '+Object.keys(tags).length+' tags</span></div>'+
+  '<div class="meta">Top signals: '+(top.map(function(x){return esc(x)+'×'+tags[x]}).join(' · ')||'—')+'</div></div>'+
+  CTEES.map(function(c){
+   var stat=n+' items scanned';
+   if(c.name==='DEVELOPER')stat=(X.products||[]).filter(function(p){return p.status!=='sold'}).length+' assets in flight';
+   if(c.name==='COPYWRITER')stat='tier pricing · autoCap '+usd(X.cfg.autoCap);
+   if(c.name==='IP SKEPTIC')stat=X.queue.filter(function(q){return q.status==='pending'}).length+' assets awaiting review';
+   if(c.name==='MUSIC DIRECTOR')stat=(telemetry.billboard||[]).length+' chart entries indexed';
+   return '<div class="card"><div class="row1"><span class="name">'+c.em+' '+c.name+'</span><span style="font-size:10px;color:var(--cyan)">ACTIVE</span></div><div class="meta">'+c.role+' · '+stat+'</div></div>'}).join('')+
+  '<div class="sect">BILLBOARD TOP 100 TELEMETRY</div>'+
+  ((telemetry.billboard||[]).length?telemetry.billboard.slice(0,8).map(function(b2){
+   return '<div class="card"><div class="row1"><span style="font-size:11px">#'+b2.rank+' '+esc(b2.title||'')+'</span><span style="font-size:10px;color:var(--dim)">'+esc(b2.artist||'')+'</span></div><div class="meta">'+esc(b2.genre||'')+' · '+esc(b2.trend||'')+'</div></div>'}).join(''):'<div class="empty">No chart telemetry — supply billboard[] in telemetry JSON</div>')+
+  '<div class="sect">SOCIAL POSTING SCHEDULE — release only after owner approval</div>'+
+  (schedule.length?schedule.slice(0,10).map(function(s2){
+   return '<div class="card"><div class="row1"><span style="font-size:11px">'+esc(s2.title||s2.id)+'</span><span style="font-size:10px;color:var(--amber)">'+s2.status.toUpperCase()+'</span></div><div class="meta">'+esc(s2.platform||'')+' · '+esc(s2.when||'')+'</div></div>'}).join(''):'<div class="empty">No scheduled posts</div>')+
+  '<div class="sect">THOUGHT STREAM</div>'+X.acts.slice(0,12).map(function(e){
+   return '<div class="ev t-'+e.type+'"><span class="ts">'+e.t+'</span>'+ebr(e.text)+'</div>'}).join('')}
+function bindCommittee(){
+ $('telFile').onchange=function(e){var f=e.target.files[0];if(!f)return;
+  var rd=new FileReader();rd.onload=function(){ingestTelemetry(rd.result)};rd.readAsText(f)};
+ $('telPaste').onclick=function(){var t=prompt('Paste telemetry JSON (data/extracted_data.json):');if(t)ingestTelemetry(t)}}
+function ingestTelemetry(txt){
+ try{
+  var d=JSON.parse(txt);
+  if(d.items)telemetry.items=d.items;
+  if(d.billboard)telemetry.billboard=d.billboard;
+  SS('OC8_TELEMETRY',telemetry);
+  audit('COMMITTEE','TELEMETRY_INGEST','pass',((d.items||[]).length)+' items · '+((d.billboard||[]).length)+' chart entries');
+  log('sys','📊 Telemetry ingested — committee analyzing');notifyBadge();renderSuite();
+ }catch(e){alert('E_VALIDATION: invalid JSON — '+e.message)}}
+/* [PENDING_OWNER_APPROVAL — Stage 1 pending · Stage 2 forbidden · Stage 3 owner release] */
+function approveHTML(){
+ var pend=X.queue.filter(function(q){return q.status==='pending'});
+ var done=X.queue.filter(function(q){return q.status!=='pending'});
+ return '<div class="sect">PENDING_OWNER_APPROVAL — '+pend.length+' locked</div>'+
+  '<div class="card"><div class="meta">Agents are STRICTLY FORBIDDEN from publishing, listing, uploading, or accepting funds autonomously. Release requires your explicit command.</div>'+
+  '<div style="display:flex;gap:6px;margin-top:8px"><input id="cmdRelease" placeholder="APPROVE_RELEASE <ITEM_ID>  or  REJECT <ITEM_ID>" style="flex:1"><button class="primary" id="cmdGo">EXECUTE</button></div>'+
+  '<button id="qSync" style="width:100%;margin-top:6px">⬇ SYNC QUEUE FROM GITHUB (committee/queue.json)</button>'+
+  '<button id="qIngest" style="width:100%;margin-top:6px">📋 PASTE QUEUE JSON</button></div>'+
+  (pend.length?pend.map(qCard).join(''):'<div class="empty">Nothing pending — agents are holding</div>')+
+  '<div class="sect">RELEASED / REJECTED</div>'+(done.length?done.slice(0,10).map(qCard).join(''):'<div class="empty">No history</div>')}
+function qCard(q){
+ var col={pending:'var(--amber)',released:'var(--green)',rejected:'var(--red)'}[q.status]||'var(--dim)';
+ return '<div class="card"><div class="row1"><span class="name">'+esc(q.em||'📦')+' '+esc(q.title||q.id)+'</span><span style="font-size:10px;color:'+col+'">'+q.status.toUpperCase()+'</span></div>'+
+  '<div class="meta">'+esc(q.kind||'product')+' · by '+esc(q.agentId||'committee')+' · '+usd(q.price||0)+(q.platform?' · '+esc(q.platform):'')+(q.royaltyFree?' · ♾ royalty-free':'')+'</div>'+
+  (q.body?'<div class="meta">'+esc(String(q.body).slice(0,160))+'…</div>':'')+
+  (q.status==='pending'?'<div style="display:flex;gap:6px;margin-top:6px"><button class="primary" style="flex:1" data-rel="'+q.id+'">✅ APPROVE & RELEASE</button><button class="warn" style="flex:1" data-rej="'+q.id+'">✖ REJECT</button></div>':'')+
+  (q.status==='released'?'<div class="meta" style="margin-top:4px">🔗 approval written to repo — fulfillment bridge packages & dispatches</div>':'')}
+function bindApprove(){
+ $('cmdGo').onclick=function(){var v=$('cmdRelease').value.trim();if(v)ownerCommand(v)};
+ $('qSync').onclick=syncQueue;
+ $('qIngest').onclick=function(){var t=prompt('Paste queue JSON (committee/queue.json):');if(t)ingestQueue(t)};
+ $('suiteBody').querySelectorAll('[data-rel]').forEach(function(b){b.onclick=function(){releaseItem(b.dataset.rel)}});
+ $('suiteBody').querySelectorAll('[data-rej]').forEach(function(b){b.onclick=function(){rejectItem(b.dataset.rej)}})}
+function ownerCommand(cmd){
+ var m=cmd.match(/^APPROVE_RELEASE\s+(\S+)/i),r=cmd.match(/^REJECT\s+(\S+)/i);
+ if(m)return releaseItem(m[1]);
+ if(r)return rejectItem(r[1]);
+ alert('Unknown command — use APPROVE_RELEASE <ITEM_ID> or REJECT <ITEM_ID>')}
+function releaseItem(id){
+ var q=X.queue.filter(function(x){return x.id===id})[0];if(!q)return alert('Item not found: '+id);
+ q.status='released';q.releasedAt=Date.now();save('queue');
+ audit('GATEKEEPER','APPROVE_RELEASE','pass',id+' released by owner');
+ OC.feed('sale','✅ RELEASED: '+q.title+' — payment links & fulfillment now live');
+ ghPut('fulfillment/approvals/'+id+'.json',JSON.stringify(q,null,2)).then(function(){log('sys','☁️ Approval written to repo')}).catch(function(e){log('flag','⚠ GitHub: '+e.message)});
+ notifyBadge();renderSuite()}
+function rejectItem(id){
+ var q=X.queue.filter(function(x){return x.id===id})[0];if(!q)return alert('Item not found: '+id);
+ q.status='rejected';save('queue');
+ audit('GATEKEEPER','REJECT','pass',id+' rejected');
+ OC.feed('sys','✖ REJECTED: '+q.title);notifyBadge();renderSuite()}
+function ingestQueue(txt){
+ try{
+  var d=JSON.parse(txt),arr=Array.isArray(d)?d:(d.items||[]),n=0;
+  arr.forEach(function(q){if(q&&q.id&&!X.queue.some(function(x){return x.id===q.id})){
+   if(!q.status)q.status='pending';X.queue.push(q);n++}});
+  save('queue');audit('GATEKEEPER','QUEUE_INGEST','pass',n+' items');notifyBadge();renderSuite();
+ }catch(e){alert('E_VALIDATION: '+e.message)}}
+/* [GITHUB BRIDGE — keyring credential 'github': login username=owner/repo, secret=PAT] */
+async function ghPut(path,content){
+ if(!X.vault.open)throw new Error('E_VAULT_LOCKED');
+ var c=X.vault.data.creds.filter(function(x){return x.platform==='github'&&x.status==='active'})[0];
+ if(!c||!c.logins[0])throw new Error('E_NO_GITHUB_CRED — add github credential in VAULT');
+ var url='https://api.github.com/repos/'+c.logins[0].username+'/contents/'+path,sha=null;
+ try{var r0=await fetch(url,{headers:{Authorization:'Bearer '+c.logins[0].secret,Accept:'application/vnd.github+json'}});if(r0.ok)sha=(await r0.json()).sha}catch(e){}
+ var r=await fetch(url,{method:'PUT',headers:{Authorization:'Bearer '+c.logins[0].secret,Accept:'application/vnd.github+json','Content-Type':'application/json'},
+  body:JSON.stringify({message:'OC6 '+path,content:btoa(unescape(encodeURIComponent(content))),sha:sha})});
+ if(!r.ok)throw new Error('E_GITHUB_'+r.status);return true}
+async function ghGetDir(dir){
+ if(!X.vault.open)throw new Error('E_VAULT_LOCKED');
+ var c=X.vault.data.creds.filter(function(x){return x.platform==='github'&&x.status==='active'})[0];
+ if(!c||!c.logins[0])throw new Error('E_NO_GITHUB_CRED');
+ var r=await fetch('https://api.github.com/repos/'+c.logins[0].username+'/contents/'+dir,{headers:{Authorization:'Bearer '+c.logins[0].secret,Accept:'application/vnd.github+json'}});
+ if(!r.ok)throw new Error('E_GITHUB_'+r.status);return await r.json()}
+function syncQueue(){
+ ghGetDir('committee').then(function(files){
+  var f=files.filter(function(x){return x.name==='queue.json'})[0];
+  if(!f){alert('No committee/queue.json yet — run committee_engine.py first');return}
+  return fetch(f.download_url).then(function(r){return r.text()}).then(ingestQueue);
+ }).catch(function(e){alert(e.message)})}
+function notifyBadge(){
+ var n=X.queue.filter(function(q){return q.status==='pending'}).length,btn=null;
+ document.querySelectorAll('nav button').forEach(function(b){if(b.textContent.indexOf('SUITE')>-1)btn=b});
+ if(btn)btn.innerHTML='<span class="ic">🧬</span>SUITE'+(n?' 🔴'+n:'')}
+/* [BOOT — V6] */
+ensureAgents();
+notifyBadge();
+setInterval(function(){
+ if(!$('v-suite')||!$('v-suite').classList.contains('on'))return;
+ if(X.tab==='roster')paintUptime();
+ if(X.tab==='feed'&&!X.feedPause)paintFeed();
+},2000);
+log('sys','🏛 V6 MASTER online — committee · owner approval gate · keyboard focus lock · stealth pipeline armed');
+window.OC7={X:X,transferTask:transferTask,grantTool:grantTool,addCred:addCred,addLogin:addLogin,sellProduct:sellProduct,tools:TOOLS2,map:MAP,
+ queue:X.queue,releaseItem:releaseItem,rejectItem:rejectItem,ownerCommand:ownerCommand,
+ ingestTelemetry:ingestTelemetry,ingestQueue:ingestQueue,notifyBadge:notifyBadge};
 })();
+
 </script>
 </body>
 </html>
