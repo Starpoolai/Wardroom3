@@ -1030,5 +1030,176 @@ function vaultHTML(){
   '<select id="credPlatform" style="width:auto">'+['gemini','instagram','youtube','tiktok','facebook','cashapp','venmo','other'].map(function(p){return '<option>'+p+'</option>'}).join('')+'</select>'+
   '<input id="credLabel" placeholder="Label" style="flex:1;min-width:90px">'+
   '<button class="primary" id="credAdd">+ C  
+/* ═══ v7 PART 2 — compat shims · vault/finance/chat · MAP ENGINE · boot ═══ */
+/* [COMPAT SHIMS — safe local mirrors of v5 internals] */
+var clamp=function(v,a,b){return Math.max(a,Math.min(b,v))};
+var pick=function(a){return a[Math.floor(Math.random()*a.length)]};
+function skillLvl(a,p){return Math.min(5,Math.floor(((a.skills||{})[p]||0)/3))}
+var RES={trend:{tag:'TR'},data:{tag:'DA'},ip:{tag:'IP'},persona:{tag:'PW'},demand:{tag:'DM'}};
+var PLANETS=[
+ {id:'command',name:'Command HQ',color:'#00e5ff',orbit:0,speed:0,angle:0,consumes:null,produces:null},
+ {id:'social',name:'Social Media Hub',color:'#ff4fd8',orbit:90,speed:.00045,angle:.4,consumes:['ip'],produces:['demand']},
+ {id:'ebook',name:'E-Book Nexus',color:'#4f8dff',orbit:140,speed:.00034,angle:2.1,consumes:['data'],produces:['ip']},
+ {id:'rnd',name:'R&D Laboratory',color:'#ffb020',orbit:190,speed:.00027,angle:4,consumes:null,produces:['trend','data']},
+ {id:'pleasure',name:'Pleasure Planet',color:'#9c27b0',orbit:235,speed:.00023,angle:3,consumes:null,produces:null},
+ {id:'influencer',name:'AI Influencer World',color:'#b44fff',orbit:280,speed:.00021,angle:5.3,consumes:['data'],produces:['persona']},
+ {id:'market',name:'Consumer Market',color:'#22e58c',orbit:325,speed:.00016,angle:1.2,consumes:['ip','demand'],produces:[]},
+ {id:'m2m',name:'M2M Exchange',color:'#ff5533',orbit:370,speed:.00012,angle:3.4,consumes:null,produces:null}];
+PLANETS.forEach(function(p){p.angle+=Math.random()*6.28});
+var byId={};PLANETS.forEach(function(p){byId[p.id]=p});
+/* [VAULT TAB — multiple credentials, multiple logins each] */
+function vaultHTML(){
+ if(!X.vault.open){
+  return '<div class="sect">KEYRING v2 — LOCKED</div><div class="card">'+
+   '<div class="meta">AES-256-GCM · multiple credentials · multiple logins per platform</div>'+
+   (LS('OC7_VAULT',null)?'<input id="vp" type="password" placeholder="Passphrase" style="margin:8px 0"><button class="primary" id="vUnlock" style="width:100%">🔓 UNLOCK</button>':'<input id="vp" type="password" placeholder="Create passphrase (6+ chars)" style="margin:8px 0"><button class="primary" id="vSetup" style="width:100%">🔐 INITIALIZE KEYRING</button>')+'</div>'+
+   '<div class="meta" style="margin-top:6px">Encrypted locally with your passphrase. Production: route keys through a server-side proxy.</div>';
+ }
+ var logins=X.vault.data.creds.reduce(function(s,c){return s+c.logins.length},0);
+ return '<div class="sect">KEYRING v2 — '+X.vault.data.creds.length+' credentials · '+logins+' logins</div>'+
+  '<div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
+  '<select id="credPlatform" style="width:auto">'+['gemini','instagram','youtube','tiktok','facebook','cashapp','venmo','other'].map(function(p){return '<option>'+p+'</option>'}).join('')+'</select>'+
+  '<input id="credLabel" placeholder="Label" style="flex:1;min-width:90px">'+
+  '<input id="credScopes" placeholder="scopes,comma-sep" style="flex:1;min-width:90px">'+
+  '<button class="primary" id="credAdd">+ CREDENTIAL</button></div></div>'+
+  X.vault.data.creds.map(function(c){
+   return '<div class="card"><div class="row1"><span class="name">'+esc(c.platform)+' — '+esc(c.label)+'</span>'+
+    '<span style="font-size:10px;color:'+(c.status==='active'?'var(--green)':'var(--red)')+'">'+c.status.toUpperCase()+'</span></div>'+
+    '<div class="meta">scopes: '+(c.scopes.join(',')||'—')+'</div>'+
+    c.logins.map(function(l){return '<div class="meta">🔑 '+esc(l.username)+' · '+esc(l.secret.slice(0,4))+'••••'+(l.mfa?' · MFA✓':'')+'</div>'}).join('')+
+    '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+
+    '<input class="lg-user" placeholder="username" style="flex:1;min-width:80px">'+
+    '<input class="lg-sec" type="password" placeholder="secret/key" style="flex:1;min-width:80px">'+
+    '<input class="lg-mfa" placeholder="MFA (opt)" style="width:70px">'+
+    '<button style="padding:6px 9px;font-size:10px" data-addlogin="'+c.id+'">+ LOGIN</button>'+
+    '<button class="warn" style="padding:6px 9px;font-size:10px" data-delcred="'+c.id+'">DELETE</button></div></div>'}).join('')+
+  '<button id="vSeal" style="width:100%;margin-top:6px">🔒 SEAL VAULT</button>'}
+function bindVault(){
+ var su=$('vSetup'),ul=$('vUnlock');
+ if(su)su.onclick=function(){var p=$('vp').value;if(p&&p.length>=6)vaultSetup(p);else alert('Passphrase min 6 characters')};
+ if(ul)ul.onclick=async function(){var ok=await vaultUnlock($('vp').value);if(!ok)alert('Wrong passphrase');renderSuite()};
+ var ca=$('credAdd');if(ca)ca.onclick=function(){var err=addCred($('credPlatform').value,$('credLabel').value,$('credScopes').value);if(err)alert(err);renderSuite()};
+ $('suiteBody').querySelectorAll('[data-addlogin]').forEach(function(b){b.onclick=function(){
+  var card=b.closest('.card');
+  var err=addLogin(b.dataset.addlogin,card.querySelector('.lg-user').value,card.querySelector('.lg-sec').value,card.querySelector('.lg-mfa').value);
+  if(err)alert(err);renderSuite()}});
+ $('suiteBody').querySelectorAll('[data-delcred]').forEach(function(b){b.onclick=function(){if(confirm('Delete credential and all its logins?'))delCred(b.dataset.delcred)}});
+ var seal=$('vSeal');if(seal)seal.onclick=function(){X.vault={open:false,key:null,data:{creds:[]}};log('sys','🔒 Vault sealed');renderSuite()}}
+/* [FINANCE TAB — ledger, rails, products, compliance] */
+function financeHTML(){
+ var h='<div class="sect">FINANCE — balance '+usd(balance())+' · autoCap '+usd(X.cfg.autoCap)+'</div>';
+ h+='<div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
+  '<select id="txType" style="width:auto">'+['income','payout','transfer','fee'].map(function(t){return '<option>'+t+'</option>'}).join('')+'</select>'+
+  '<select id="txRail" style="width:auto">'+['cashapp','venmo','zelle','internal'].map(function(t){return '<option>'+t+'</option>'}).join('')+'</select>'+
+  '<input id="txHandle" placeholder="$handle" style="width:90px">'+
+  '<input id="txAmt" type="number" placeholder="amount" style="width:80px">'+
+  '<input id="txMemo" placeholder="memo" style="flex:1;min-width:90px">'+
+  '<input id="txAgent" placeholder="agent" style="width:80px" value="MIDAS">'+
+  '<button class="primary" id="txGo">＋ TX</button></div>'+
+  '<div class="meta">CashApp/Venmo → payment links · Zelle → manual send + confirm · ≤'+usd(X.cfg.autoCap)+' auto-approved</div></div>';
+ h+='<div class="sect">PRODUCTS — generate · compliance-check · sell</div>'+
+  '<div style="display:flex;gap:6px;margin-bottom:8px"><button class="primary" id="genFin">📈 MIDAS PRODUCT</button><button id="genWell" style="border-color:var(--green);color:var(--green)">🌿 AURA PRODUCT</button></div>'+
+  (X.products.length?X.products.slice(-10).reverse().map(function(p){
+   return '<div class="card"><div class="row1"><span>'+esc(p.title)+'</span><span style="font-size:10px;color:'+(p.status==='sold'?'var(--green)':'var(--cyan)')+'">'+usd(p.price)+' '+p.status.toUpperCase()+'</span></div>'+
+    '<div class="meta">by '+esc(p.agentId)+' · '+(p.compliance&&p.compliance.flags.length?'⚠ '+esc(p.compliance.flags.join(',')):'✅ compliance clean')+'</div>'+
+    '<div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap">'+
+    ['instagram','youtube','tiktok','facebook'].map(function(pl){return '<button style="padding:5px 8px;font-size:10px" data-sell="'+p.id+'" data-pl="'+pl+'">'+pl.slice(0,2).toUpperCase()+'</button>'}).join('')+
+    '<button style="padding:5px 8px;font-size:10px" data-dlprod="'+p.id+'">💾 .MD</button></div></div>'}).join(''):'<div class="empty">No products yet</div>');
+ h+='<div class="sect">LEDGER</div>'+(ledger.length?ledger.slice(0,12).map(function(t){
+   var col={confirmed:'var(--green)',approved:'var(--cyan)',pending:'var(--amber)',flagged:'var(--red)',failed:'var(--red)'}[t.status]||'var(--dim)';
+   return '<div class="card"><div class="row1"><span style="font-size:11px">'+t.type+' · '+usd(t.amount)+' · '+t.rail+'</span><span style="font-size:10px;color:'+col+'">'+t.status.toUpperCase()+'</span></div>'+
+    '<div class="meta">'+esc(t.memo||t.id)+' · '+new Date(t.ts).toLocaleTimeString()+(t.error?' · ⚠ '+t.error.code:'')+'</div>'+
+    '<div style="display:flex;gap:5px;margin-top:5px;flex-wrap:wrap">'+
+    (t.status==='pending'?'<button style="padding:5px 8px;font-size:10px" data-tx="'+t.id+'" data-act="approve">✅ APPROVE</button>':'')+
+    (t.status==='approved'?'<button style="padding:5px 8px;font-size:10px" data-tx="'+t.id+'" data-act="confirm">🏁 CONFIRM</button>'+(t.link?' <a href="'+t.link+'" target="_blank" style="padding:5px 8px;font-size:10px;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--cyan)">↗ OPEN</a>':''):'')+
+    ((t.error&&t.error.retryable)?'<button style="padding:5px 8px;font-size:10px" data-tx="'+t.id+'" data-act="retry">🔁 RETRY</button>':'')+
+    '<button style="padding:5px 8px;font-size:10px" data-tx="'+t.id+'" data-act="fail">✖ FAIL</button></div></div>'}).join(''):'<div class="empty">No transactions</div>');
+ h+='<button id="expLogs" style="width:100%;margin-top:8px">⬇ EXPORT LOGS (ledger · audit · activity)</button>';
+ return h}
+function bindFinance(){
+ $('txGo').onclick=newTx;
+ $('genFin').onclick=function(){q2(async function(){try{await toolGenerate('fin');renderSuite()}catch(e){log('flag','⚠ '+(e.message||e))}})};
+ $('genWell').onclick=function(){q2(async function(){try{await toolGenerate('well');renderSuite()}catch(e){log('flag','⚠ '+(e.message||e))}})};
+ $('suiteBody').querySelectorAll('[data-sell]').forEach(function(b){b.onclick=function(){sellProduct(b.dataset.sell,b.dataset.pl)}});
+ $('suiteBody').querySelectorAll('[data-dlprod]').forEach(function(b){b.onclick=function(){
+  var p=X.products.filter(function(x){return x.id===b.dataset.dlprod})[0];if(p)dl(p.id+'.md','# '+p.title+'\n\n'+p.body)}});
+ $('suiteBody').querySelectorAll('[data-tx]').forEach(function(b){b.onclick=function(){txAction(b.dataset.tx,b.dataset.act)}});
+ $('expLogs').onclick=function(){dl('oc7-logs.json',JSON.stringify({ledger:ledger,audit:X.audit,acts:X.acts,products:X.products},null,2))}}
+function sellProduct(pid,platform){
+ var p=X.products.filter(function(x){return x.id===pid})[0];if(!p)return;
+ if(!hasCred(platform)){log('flag','🚫 E_NO_CREDENTIAL: '+platform);audit('SALES','R_CRED','flag','missing '+platform);return}
+ var txt='#'+platform.toUpperCase()+' POST PACKAGE\n\n'+p.title+' — '+usd(p.price)+'\n\n'+p.body.slice(0,900)+'\n\nCTA: link in bio / DM.\n'+(p.compliance.flags.length?'⚠ Flags: '+p.compliance.flags.join(','):'✅ Compliance clean — disclosures verified')+'\n'+(p.price<=X.cfg.autoCap?'Auto-approved under cap.':'Requires one-tap approval over '+usd(X.cfg.autoCap)+'.');
+ dl('post-'+platform+'-'+p.id+'.txt',txt);
+ var rail=hasCred('cashapp')?'cashapp':(hasCred('venmo')?'venmo':'internal');
+ var li=(X.vault.data.creds.filter(function(c){return c.platform===rail})[0]||{logins:[]}).logins[0];
+ var t={id:'TX-'+Date.now().toString(36),type:'income',rail:rail,amount:p.price,currency:'USD',agentId:p.agentId,memo:'Sale: '+p.title,ts:Date.now(),status:p.price<=X.cfg.autoCap?'approved':'pending',link:payLink(rail,li?li.username:'YOURHANDLE',p.price),error:null};
+ ledger.push(t);saveLedger();p.status='listed';save('products');
+ log('sale','🛍 '+p.title+' → '+platform+' · intent '+t.id+' ('+t.status+')');
+ audit('SALES','R_DISCLOSURE','pass','disclosure included');
+ renderSuite()}
+/* [CHAT TAB — history · autocomplete · styles · personality reroll] */
+function chatHTML(){
+ return SUITE.map(function(s){
+  var q=X.quirks[s.key]||[];
+  return '<div class="sect">'+s.persona.em+' '+s.name+' — style: '+X.cfg.style+(q.length?' · 🎲 '+esc(q.join(' + ')):'')+'</div>'+
+   '<div class="card"><div id="chat-'+s.key+'" style="display:flex;flex-direction:column;max-height:220px;overflow-y:auto"></div>'+
+   '<div id="sug-'+s.key+'" style="margin-top:6px"></div>'+
+   '<div style="display:flex;gap:6px;margin-top:6px"><input id="in-'+s.key+'" placeholder="Directive… (↑ history)" style="flex:1"><button class="primary" data-send="'+s.key+'">➤</button></div>'+
+   '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+
+   '<select id="styleSel" style="width:auto">'+Object.keys(STYLES).map(function(k){return '<option'+(X.cfg.style===k?' selected':'')+'>'+k+'</option>'}).join('')+'</select>'+
+   '<button style="padding:6px 9px;font-size:10px" data-quirk="'+s.key+'">🎲 REROLL PERSONALITY</button>'+
+   '<button style="padding:6px 9px;font-size:10px" data-gen="'+s.key+'">⚡ GENERATE PRODUCT</button></div></div>'}).join('')+
+  '<div class="meta">Style + quirks are injected into every system prompt. MIDAS auto-appends "Not financial advice." and AURA "…not medical advice." — enforced in code, not just prompted.</div>'}
+function bindChat(){
+ SUITE.forEach(function(s){
+  paintChat(s.key);
+  var inp=$('in-'+s.key);
+  inp.addEventListener('keydown',function(e){
+   if(e.key==='Enter')suiteSend(s.key);
+   if(e.key==='ArrowUp'){histNav(s.key,1);e.preventDefault()}
+   if(e.key==='ArrowDown'){histNav(s.key,-1);e.preventDefault()}});
+  inp.oninput=function(){renderSuggest(s.key,inp.value)}});
+ $('suiteBody').querySelectorAll('[data-send]').forEach(function(b){b.onclick=function(){suiteSend(b.dataset.send)}});
+ $('suiteBody').querySelectorAll('[data-quirk]').forEach(function(b){b.onclick=function(){rollQuirks(b.dataset.quirk);renderSuite()}});
+ $('suiteBody').querySelectorAll('[data-gen]').forEach(function(b){b.onclick=function(){q2(async function(){try{await toolGenerate(b.dataset.gen);renderSuite()}catch(e){log('flag','⚠ '+(e.message||e))}})}});
+ var ss=$('styleSel');if(ss)ss.onchange=function(){X.cfg.style=ss.value;SS('OC7_CFG',X.cfg);log('sys','🗣 Response style → '+ss.value);renderSuite()}}
+/* [AUTO-AUDIT LOOP — embedded in agent logic] */
+setInterval(function(){
+ ledger.forEach(function(t){if(t.status==='pending'&&Date.now()-t.ts>300000){t.status='flagged';t.error={code:'E_TIMEOUT',message:'pending >5 min',retryable:true};audit('MIDAS','R_TX_WATCH','flag',t.id)}});
+ X.products.forEach(function(p){if(p.compliance&&p.compliance.flags.indexOf('R3_PROHIBITED_CLAIM')>-1&&p.status==='listed'){p.status='draft';audit('COMPLIANCE','R3_PROHIBITED_CLAIM','block',p.id)}});
+ var low=OC.state.agents.filter(function(a){return a.energy<30});
+ if(low.length)audit('AURA','R_WELLNESS','flag',low.map(function(a){return a.name}).join(','));
+ saveLedger();save('products')},45000);
+/* [MAP ENGINE — zoom · pan · collapsible systems · droppable planets · ships · corner HUD] */
+var MAP={zoom:1,px:0,py:0,collapsed:{inner:false,outer:false},offsets:LS('OC7_OFFSETS',{}),drag:null,pinch:null,loop:null};
+var SYSTEMS=[{id:'inner',name:'INNER SYSTEM',ids:['command','social','ebook','rnd','pleasure']},{id:'outer',name:'OUTER SYSTEM',ids:['influencer','market','m2m']}];
+function sysOf(id){return SYSTEMS.filter(function(s){return s.ids.indexOf(id)>-1})[0]||null}
+function hiddenP(p){var s=sysOf(p.id);return !!(s&&MAP.collapsed[s.id])}
+function wpos(p){var off=MAP.offsets[p.id]||{x:0,y:0};return{x:Math.cos(p.angle)*p.orbit+off.x,y:Math.sin(p.angle)*p.orbit*0.55+off.y}}
+function mapHTML(){
+ return '<div class="sect">STAR MAP+ — pinch/wheel zoom · drag pan · drag planets (persists) · tap planet = dispatch</div>'+
+  '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">'+
+  SYSTEMS.map(function(s){return '<button style="padding:5px 9px;font-size:10px'+(MAP.collapsed[s.id]?';opacity:.5':'')+'" data-sys="'+s.id+'">'+(MAP.collapsed[s.id]?'▸':'▾')+' '+s.name+'</button>'}).join('')+
+  '<button style="padding:5px 9px;font-size:10px" id="mzIn">＋</button><button style="padding:5px 9px;font-size:10px" id="mzOut">－</button><button style="padding:5px 9px;font-size:10px" id="mzReset">⌂ RESET</button></div>'+
+  '<div style="position:relative;height:340px;border:1px solid var(--line);border-radius:12px;overflow:hidden"><canvas id="map7" style="width:100%;height:100%;display:block;touch-action:none"></canvas></div>'+
+  '<div class="meta">Ships = agents in transit · orbiting dots = stationed agents (red = blocked) · FULL ring = dock capacity '+(2+OC.state.ships)+' exceeded · corners = live resource grids</div>'}
+function bindMap(){
+ $('suiteBody').querySelectorAll('[data-sys]').forEach(function(b){b.onclick=function(){MAP.collapsed[b.dataset.sys]=!MAP.collapsed[b.dataset.sys];renderSuite()}});
+ $('mzIn').onclick=function(){MAP.zoom=Math.min(3,MAP.zoom*1.25)};
+ $('mzOut').onclick=function(){MAP.zoom=Math.max(0.4,MAP.zoom/1.25)};
+ $('mzReset').onclick=function(){MAP.zoom=1;MAP.px=0;MAP.py=0};
+ var c=$('map7');sizeMap7(c);
+ if(MAP.loop)cancelAnimationFrame(MAP.loop);
+ mapLoop(c);
+ var sc=function(){var r=c.getBoundingClientRect();return c.width/r.width};
+ c.addEventListener('wheel',function(e){e.preventDefault();MAP.zoom=clamp(MAP.zoom*(e.deltaY<0?1.1:0.9),0.4,3)},{passive:false});
+ c.addEventListener('pointerdown',function(e){var p=mapHit(c,e);
+  if(p)MAP.drag={id:p.id,sx:e.clientX,sy:e.clientY,ox:MAP.offsets[p.id]||{x:0,y:0},moved:false};
+  else MAP.drag={pan:true,sx:e.clientX,sy:e.clientY,opx:MAP.px,opy:MAP.py,moved:false};
+  c.setPointerCapture(e.pointerId)});
+ c.addEventListener('pointermove',function(e){if(!MAP.drag)return;
+  if(Math.abs(e.clientX-MAP.drag.sx)+Math.abs(e.clientY-MAP.drag.sy)>6)MAP.drag.moved=true;
+  if(MAP.drag.pan){MAP.px=MAP.drag.opx+(e.clientX-MAP.drag.sx)*sc();MAP.py=MAP.drag.opy+(e.clientY-MAP.drag.sy)*sc()}
+  else MAP.offsets[MAP.drag.id]={x:MAP.drag.ox.x+(e.clientX
 </body>
 </html>
