@@ -1759,5 +1759,144 @@ window.OCP._reg=[
  {id:'KB-25',author:'James Clear',title:'Atomic Habits',domain:'habits',y:'systems beat willpower'}];
 })();
 </script>
+Here is the complete JavaScript script to integrate the drag-and-drop tool system, including the Diagnostic Scanner, Resource Extractor, and Optimization Module. You can append this code to your main script or add it before the closing body tag in your index.js.```javascript
+(function () {
+'use strict';
+var TOOLS_CATALOG = [
+{
+id: 'tool_scanner',
+name: 'Diagnostic Scanner',
+icon: '🔍',
+effect: 'audit_boost',
+desc: 'Accelerates audit tasks and reduces burnout.'
+},
+{
+id: 'tool_extractor',
+name: 'Resource Extractor',
+icon: '⛏️',
+effect: 'resource_boost',
+desc: 'Increases efficiency when allocating fleet resources.'
+},
+{
+id: 'tool_optimizer',
+name: 'Optimization Module',
+icon: '⚡',
+effect: 'productivity_boost',
+desc: 'Provides a temporary boost to agent output speed.'
+}
+];
+if (window.OC && window.OC.state) {
+window.OC.state.toolAssignments = window.OC.state.toolAssignments || {};
+}
+function injectToolRackUI() {
+if (document.getElementById('toolRackContainer')) return;
+var container = document.createElement('div');
+container.id = 'toolRackContainer';
+container.style.cssText =
+'position: fixed; bottom: 70px; right: 15px; background: rgba(11, 17, 32, 0.95);' +
+'border: 1px solid #00f3ff; border-radius: 8px; padding: 10px; z-index: 9999;' +
+'box-shadow: 0 0 10px rgba(0, 243, 255, 0.3); color: #fff; font-family: monospace; width: 220px;';
+var header = document.createElement('div');
+header.style.cssText = 'font-weight: bold; font-size: 11px; margin-bottom: 8px; color: #00f3ff; letter-spacing: 1px;';
+header.innerText = '🛠️ EQUIPMENT RACK';
+container.appendChild(header);
+var rack = document.createElement('div');
+rack.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
+TOOLS_CATALOG.forEach(function (tool) {
+var card = document.createElement('div');
+card.className = 'draggable-tool-card';
+card.setAttribute('draggable', 'true');
+card.dataset.toolId = tool.id;
+card.style.cssText =
+'background: #101a30; border: 1px solid #1a2b4c; border-radius: 4px; padding: 6px;' +
+'cursor: grab; font-size: 11px; display: flex; align-items: center; gap: 8px; user-select: none;';
+card.innerHTML =
+'<span style="font-size: 14px;">' + tool.icon + '</span>' +
+'<div>' +
+'<div style="font-weight: bold; color: #e0e0e0;">' + tool.name + '</div>' +
+'<div style="font-size: 9px; color: #88a0c0;">' + tool.desc + '</div>' +
+'</div>';
+card.addEventListener('dragstart', function (e) {
+e.dataTransfer.setData('text/plain', tool.id);
+e.dataTransfer.effectAllowed = 'copy';
+card.style.opacity = '0.5';
+});
+card.addEventListener('dragend', function () {
+card.style.opacity = '1';
+});
+rack.appendChild(card);
+});
+container.appendChild(rack);
+document.body.appendChild(container);
+}
+function bindAgentDropTargets() {
+var agentCards = document.querySelectorAll('.card, [data-agent-id], .agent-item');
+agentCards.forEach(function (el) {
+if (el.dataset.dropBound) return;
+el.dataset.dropBound = 'true';
+el.addEventListener('dragover', function (e) {
+e.preventDefault();
+e.dataTransfer.dropEffect = 'copy';
+el.style.borderColor = '#00f3ff';
+el.style.backgroundColor = 'rgba(0, 243, 255, 0.08)';
+});
+el.addEventListener('dragleave', function () {
+el.style.borderColor = '';
+el.style.backgroundColor = '';
+});
+el.addEventListener('drop', function (e) {
+e.preventDefault();
+el.style.borderColor = '';
+el.style.backgroundColor = '';
+var toolId = e.dataTransfer.getData('text/plain');
+var agentId = el.dataset.agentId || el.id || el.querySelector('.name, strong, b')?.innerText?.trim();
+if (toolId && agentId) {
+assignToolToAgent(agentId, toolId, el);
+}
+});
+});
+}
+function assignToolToAgent(agentId, toolId, agentElement) {
+var tool = TOOLS_CATALOG.find(function (t) { return t.id === toolId; });
+if (!tool) return;
+if (window.OC && window.OC.state) {
+window.OC.state.toolAssignments[agentId] = {
+toolId: tool.id,
+toolName: tool.name,
+assignedAt: Date.now()
+};
+if (typeof window.OC.feed === 'function') {
+window.OC.feed('sys', '🛠️ ' + agentId + ' EQUIPPED ' + tool.name);
+}
+}
+var badge = agentElement.querySelector('.equipped-tool-badge');
+if (!badge) {
+badge = document.createElement('div');
+badge.className = 'equipped-tool-badge';
+badge.style.cssText =
+'font-size: 9px; color: #00f3ff; background: rgba(0, 243, 255, 0.15);' +
+'border: 1px solid #00f3ff; border-radius: 3px; padding: 2px 5px; margin-top: 4px;' +
+'display: inline-flex; align-items: center; gap: 4px;';
+agentElement.appendChild(badge);
+}
+badge.innerHTML = '<span>' + tool.icon + '</span> Equipped: ' + tool.name;
+}
+function init() {
+injectToolRackUI();
+bindAgentDropTargets();
+var observer = new MutationObserver(function () {
+bindAgentDropTargets();
+});
+observer.observe(document.body, {
+childList: true,
+subtree: true
+});
+}
+if (document.readyState === 'loading') {
+document.addEventListener('DOMContentLoaded', init);
+} else {
+init();
+}
+})();
 </body>
 </html>
