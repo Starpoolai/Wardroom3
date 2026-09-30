@@ -599,9 +599,8 @@ if(!loadState()){
 }else feed('sys','💾 State restored — roster rebound, XP & traits migrated.');
 refreshBadges();sizeMap();
 setInterval(function(){if(!document.hidden)simTick()},1000);
-document.addEventListener('visibilitychange',function(){if(document.hidden)saveState()});
-window.addEventListener('pagehide',saveState);
-renderAll();
+document.addEventListener('visibilitychange', function(){if(document.hidden)saveState()});
+window.addEventListener('pagehide', saveState);
 <script>
 (function(){
 'use strict';
@@ -1156,6 +1155,6 @@ window.OC7={X:X,TOOLS_RACK:TOOLS_RACK,PLATFORMS:PLATFORMS,SUITE:SUITE,ARCHIVE:AR
  render:renderSuite,log:log,audit:audit};
 window.OC8=window.OC7;
 console.log('%c[OC6] V6 expansion online — 10 tabs · keyring · director · map engine','color:#00e5ff');
-});
+})
 </body>
 </html>
