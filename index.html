@@ -602,193 +602,30 @@ setInterval(function(){if(!document.hidden)simTick()},1000);
 document.addEventListener('visibilitychange',function(){if(document.hidden)saveState()});
 window.addEventListener('pagehide',saveState);
 renderAll();
-})();
-</script>
-  <!-- ═══════ ORBITAL COMMAND v6 SUITE EXPANSION — paste before </body> ═══════ -->
 <script>
 (function(){
 'use strict';
+/* ═══ WARDROOM3 V6 CONSOLIDATED EXPANSION — PART 1/2 (engine) ═══
+   Replaces ALL previous expansion blocks. Hangs off window.OC (v5 core).
+   Modules: [Helpers] [ToolRack] [Vault] [SuiteAgents] [LLM] [Products]
+            [Finance] [Transfers] [Chat] [Shims] [MapEngine]           */
 var OC=window.OC;
-if(!OC||!OC.spawnAgent){console.warn('[OC6] v5 core missing — expansion idle');return}
-function usd(n){return '$'+Math.round(n).toLocaleString()}
-function dl(name,text){var b=new Blob([text],{type:'text/plain;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click()}
-/* [SCHEMAS — exact field types, enforced by typeCheck] */
-var SCHEMAS={
- credential:{id:'string',platform:'string(gemini|instagram|youtube|tiktok|facebook|cashapp|venmo|zelle|other)',label:'string',secret:'string',scopes:'string[]',addedAt:'number',status:'string(active|expired|revoked)'},
- product:{id:'string',type:'string(ebook|caption_pack|wellness_plan|thumbnail_brief)',title:'string',body:'string',agentId:'string',price:'number',createdAt:'number',status:'string(draft|listed|sold)',compliance:'object{checked,flags[]}'},
- transaction:{id:'string',type:'string(income|payout|transfer|fee)',rail:'string(cashapp|venmo|zelle|internal)',amount:'number',currency:'string',agentId:'string',memo:'string',ts:'number',status:'string(pending|approved|confirmed|failed|flagged)',link:'string|null',error:'object|null'}};
-function typeCheck(o,s){for(var k in s){if(o[k]===undefined||o[k]===null)return 'missing:'+k}return null}
-var CFG=Object.assign({model:'gemini-2.0-flash',autoCap:25},JSON.parse(localStorage.getItem('OC6_CFG')||'{}'));
-function saveCfg(){localStorage.setItem('OC6_CFG',JSON.stringify(CFG))}
-/* logs */
-var acts=JSON.parse(localStorage.getItem('OC6_LOG')||'[]'),auditLog=JSON.parse(localStorage.getItem('OC6_AUDIT')||'[]');
-function log(type,text){acts.unshift({t:new Date().toLocaleTimeString(),type:type,text:String(text)});if(acts.length>150)acts.pop();localStorage.setItem('OC6_LOG',JSON.stringify(acts))}
-function audit(agentId,rule,verdict,detail){auditLog.unshift({ts:Date.now(),agentId:agentId,rule:rule,verdict:verdict,detail:String(detail)});if(auditLog.length>200)auditLog.pop();localStorage.setItem('OC6_AUDIT',JSON.stringify(auditLog))}
-/* [KEYRING — AES-256-GCM vault, passphrase-derived key] */
-var V={key:null,open:false,data:{creds:[]}};
-function b64(buf){return btoa(String.fromCharCode.apply(null,new Uint8Array(buf)))}
-function ub64(s){return Uint8Array.from(atob(s),function(c){return c.charCodeAt(0)})}
-async function deriveKey(pass,salt){var km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:150000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
-async function vaultSetup(pass){
- var salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));
- var k=await deriveKey(pass,salt);
- var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},k,new TextEncoder().encode(JSON.stringify({creds:[]})));
- localStorage.setItem('OC6_VAULT',JSON.stringify({salt:b64(salt),iv:b64(iv),ct:b64(ct)}));
- V.key=k;V.open=true;V.data={creds:[]};log('sys','🔐 Keyring initialized (AES-256-GCM)')}
-async function vaultUnlock(pass){
- var raw=JSON.parse(localStorage.getItem('OC6_VAULT')||'null');if(!raw)return false;
- try{var k=await deriveKey(pass,ub64(raw.salt));
-  var pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:ub64(raw.iv)},k,ub64(raw.ct));
-  V.key=k;V.open=true;V.data=JSON.parse(new TextDecoder().decode(pt));log('sys','🔓 Keyring unlocked ('+V.data.creds.length+' credentials)');return true
- }catch(e){return false}}
-async function vaultPersist(){
- if(!V.open)return;
- var raw=JSON.parse(localStorage.getItem('OC6_VAULT')),iv=crypto.getRandomValues(new Uint8Array(12));
- var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},V.key,new TextEncoder().encode(JSON.stringify(V.data)));
- raw.iv=b64(iv);raw.ct=b64(ct);localStorage.setItem('OC6_VAULT',JSON.stringify(raw))}
-async function vaultAdd(platform,label,secret,scopes){
- if(!V.open)return 'E_VAULT_LOCKED';
- var cred={id:'cred_'+Date.now().toString(36),platform:platform,label:label,secret:secret,scopes:(scopes||'').split(',').filter(Boolean),addedAt:Date.now(),status:'active'};
- var err=typeCheck(cred,SCHEMAS.credential);if(err)return 'E_VALIDATION '+err;
- V.data.creds.push(cred);await vaultPersist();
- audit('VAULT','CRED_ADD','pass',platform+' credential stored encrypted');
- log('sys','🔑 Added '+platform+' credential');return cred.id}
-function vaultHas(p){return V.open&&V.data.creds.some(function(c){return c.platform===p&&c.status==='active'})}
-/* [SUITE AGENTS] */
-var SUITE_AGENTS=[
- {key:'fin',name:'MIDAS',roleKey:'m2m',planetId:'m2m',persona:{em:'📈',name:'Strategist',line:'Alpha compounds daily.'},
-  sys:'You are MIDAS, a data-driven financial strategist agent in ORBITAL COMMAND. You research markets, build wealth-education products, and manage the ledger. Sharp, concise, numbers-first. ALWAYS include the line "Not financial advice." in advice or products.'},
- {key:'well',name:'AURA',roleKey:'pleasure',planetId:'pleasure',persona:{em:'🌿',name:'Mentor',line:'Wellness is a system.'},
-  sys:'You are AURA, an empathetic holistic wellness mentor agent. Supportive, practical personal-development guidance. Never diagnose, prescribe, or make medical claims. ALWAYS include "Wellness guidance, not medical advice." in advice or products.'}];
-function ensureAgents(){SUITE_AGENTS.forEach(function(s){
- if(!OC.state.agents.some(function(a){return a.name===s.name})){
-  OC.spawnAgent(s.name,s.roleKey,s.planetId,s.persona,3);
-  log('sys','🆕 '+s.name+' deployed on '+s.planetId)}})}
-/* [LLM MINI-ENGINE — queue, keyring-backed] */
-var Q2={list:[],busy:false};
-function q2(job){Q2.list.push(job);if(Q2.list.length>6)Q2.list.shift();pump2()}
-async function pump2(){if(Q2.busy)return;Q2.busy=true;while(Q2.list.length){try{await Q2.list.shift()()}catch(e){log('flag','⚠ '+(e.message||e))}}Q2.busy=false}
-async function geminiJSON(sys,user,schema){
- var cred=V.data.creds.filter(function(c){return c.platform==='gemini'&&c.status==='active'})[0];
- var key=cred?cred.secret:CFG.geminiKey;
- if(!key)throw new Error('E_NO_GEMINI_KEY — add one in VAULT');
- var body={contents:[{role:'user',parts:[{text:user}]}],systemInstruction:{parts:[{text:sys}]},generationConfig:{responseMimeType:'application/json',maxOutputTokens:400}};
- if(schema)body.generationConfig.responseSchema=schema;
- var h={'Content-Type':'application/json'};
- if(CFG.proxy)h['x-proxy-auth']='1';else h['x-goog-api-key']=key;
- var r=await fetch(CFG.proxy||('https://generativelanguage.googleapis.com/v1beta/models/'+CFG.model+':generateContent'),{method:'POST',headers:h,body:JSON.stringify(body)});
- if(r.status===429||r.status>=500)throw new Error('E_HTTP_'+r.status+' (retryable)');
- if(!r.ok)throw new Error('E_HTTP_'+r.status);
- var d=await r.json(),t=d.candidates&&d.candidates[0]&&d.candidates[0].content&&d.candidates[0].content.parts[0].text;
- return t?JSON.parse(t):null}
-var CHAT2_SCHEMA={type:'OBJECT',properties:{message:{type:'STRING'},action:{type:'OBJECT',properties:{name:{type:'STRING',enum:['generate_product','crypto','fx','none']},param:{type:'STRING'}}}},required:['message']};
-/* [FINANCIAL APIs — CORS-friendly public endpoints] */
-var TOOLS2={
- crypto:async function(pair){try{var r=await fetch('https://api.coinbase.com/v2/prices/'+(pair||'BTC-USD')+'/spot'),d=await r.json();return d.data?(pair||'BTC-USD')+' = '+d.data.amount:'unavailable'}catch(e){return 'E_RAIL_UNAVAILABLE: '+e.message}},
- fx:async function(base,quote){try{var r=await fetch('https://api.frankfurter.app/latest?from='+(base||'USD')+'&to='+(quote||'EUR')),d=await r.json();return d.rates?(base||'USD')+'→'+(quote||'EUR')+' = '+d.rates[quote||'EUR']:'unavailable'}catch(e){return 'E_RAIL_UNAVAILABLE: '+e.message}}};
-/* [PRODUCTS + COMPLIANCE AUDIT] */
-var products=JSON.parse(localStorage.getItem('OC6_PRODUCTS')||'[]');
-function saveProducts(){if(products.length>80)products=products.slice(-80);localStorage.setItem('OC6_PRODUCTS',JSON.stringify(products))}
-var PROD_SCHEMA={type:'OBJECT',properties:{title:{type:'STRING'},body:{type:'STRING'},price:{type:'NUMBER'}},required:['title','body','price']};
-var PROD_PROMPTS={fin:'Create a compact personal-finance digital product (checklist or mini-guide, under 300 words). Return title, body, fair price in USD. End body with "Not financial advice."',
- well:'Create a holistic wellness product (7-day plan or checklist, under 300 words, no medical claims). Return title, body, fair price. End body with "Wellness guidance, not medical advice."'};
-function complianceCheck(p,s){
- var flags=[],body=p.body.toLowerCase();
- if(s.key==='fin'&&!/not financial advice/.test(body))flags.push('R1_MISSING_DISCLOSURE');
- if(s.key==='well'&&!/not medical advice/.test(body))flags.push('R2_MISSING_DISCLOSURE');
- if(/guaranteed|risk-free|get rich|cure|diagnose/.test(body))flags.push('R3_PROHIBITED_CLAIM');
- if(p.price>997)flags.push('R4_PRICE_SANITY');
- p.compliance={checked:true,flags:flags};
- audit(s.name,'COMPLIANCE',flags.length?'flag':'pass',flags.join(',')||'clean');
- if(flags.indexOf('R3_PROHIBITED_CLAIM')>-1)p.status='draft';
- return flags}
-async function toolGenerate(k){
- var s=SUITE_AGENTS.filter(function(x){return x.key===k})[0];
- var res=await geminiJSON(s.sys,PROD_PROMPTS[k],PROD_SCHEMA);
- if(!res)throw new Error('E_MODEL_EMPTY');
- var p={id:'PRD-'+Date.now().toString(36),type:k==='fin'?'ebook':'wellness_plan',title:String(res.title).slice(0,80),body:String(res.body).slice(0,4000),agentId:s.name,price:Math.max(1,Math.min(997,+res.price||9)),createdAt:Date.now(),status:'listed',compliance:{checked:false,flags:[]}};
- complianceCheck(p,s);products.push(p);saveProducts();
- log('asset','📦 '+s.name+' produced "'+p.title+'" ('+usd(p.price)+')'+(p.compliance.flags.length?' ⚠'+p.compliance.flags.join(','):''));
- return p}
-/* [FINANCE — ledger, rails, approval guardrails] */
-var ledger=JSON.parse(localStorage.getItem('OC6_LEDGER')||'[]');
-function saveLedger(){if(ledger.length>200)ledger=ledger.slice(-200);localStorage.setItem('OC6_LEDGER',JSON.stringify(ledger))}
-function balance(){var b=0;ledger.forEach(function(t){if(t.status==='confirmed'){b+=(t.type==='income'?t.amount:-t.amount)}});return b}
-function newTx(){
- var t={type:$('txType').value,rail:$('txRail').value,amount:Math.round((+$('txAmt').value||0)*100)/100,agentId:$('txAgent').value||'MIDAS',memo:$('txMemo').value||'',link:null};
- var h=($('txHandle').value||'').replace(/^@/,'');
- if(t.rail==='cashapp')t.link='https://cash.me/$'+h+'/'+t.amount;
- else if(t.rail==='venmo')t.link='https://venmo.com/'+h+'?txn=pay&amount='+t.amount;
- t.currency='USD';t.ts=Date.now();t.id='TX-'+Date.now().toString(36);t.error=null;
- t.status=t.rail==='internal'?'confirmed':(t.amount<=CFG.autoCap?'approved':'pending');
- var err=typeCheck(t,SCHEMAS.transaction);if(err){t.status='failed';t.error={code:'E_VALIDATION',message:err,retryable:false}}
- ledger.push(t);saveLedger();
- audit('MIDAS','TX_CREATE',t.status==='pending'?'flag':'pass',t.type+' '+usd(t.amount)+' '+t.rail+(t.status==='pending'?' — over auto-cap, approval required':''));
- log('trade','💳 '+t.type+' '+usd(t.amount)+' via '+t.rail+' → '+t.status);
- renderSuite()}
-/* [SOCIAL SELLING — credential-gated, disclosure-enforced packages] */
-function sellProduct(pid,platform){
- var p=products.filter(function(x){return x.id===pid})[0];if(!p)return;
- if(!vaultHas(platform)){log('flag','🚫 E_NO_CREDENTIAL: '+platform+' — add it in VAULT');audit('SALES','R_CRED','flag','missing '+platform);return}
- var txt='#'+platform.toUpperCase()+' POST PACKAGE\n\n'+p.title+' — '+usd(p.price)+'\n\n'+p.body.slice(0,900)+'\n\nCTA: link in bio / DM to purchase.\n'+(p.compliance.flags.length?'⚠ Compliance flags: '+p.compliance.flags.join(','):'✅ Compliance: clean — disclosures verified')+'\nPayment: '+railNote(p.price);
- dl('post-'+platform+'-'+p.id+'.txt',txt);
- var rail=vaultHas('cashapp')?'cashapp':(vaultHas('venmo')?'venmo':'internal');
- var hc=(V.data.creds.filter(function(c){return c.platform===rail})[0]||{}).label||'YOURHANDLE';
- var t={id:'TX-'+Date.now().toString(36),type:'income',rail:rail,amount:p.price,currency:'USD',agentId:p.agentId,memo:'Sale: '+p.title,ts:Date.now(),status:p.price<=CFG.autoCap?'approved':'pending',link:rail==='internal'?null:(rail==='cashapp'?'https://cash.me/$'+hc+'/'+p.price:'https://venmo.com/'+hc+'?txn=pay&amount='+p.price),error:null};
- ledger.push(t);saveLedger();p.status='listed';saveProducts();
- log('sale','🛍 '+p.title+' packaged for '+platform+' · payment intent '+t.id+' ('+t.status+')');
- audit('SALES','R_DISCLOSURE','pass','package carries disclosure');
- renderSuite()}
-function railNote(amount){return amount<=CFG.autoCap?'auto-approved under cap':'requires one-tap approval (over '+usd(CFG.autoCap)+' cap)'}
-/* [SUITE CHAT] */
-var chats=JSON.parse(localStorage.getItem('OC6_CHAT')||'{}');
-function saveChats(){Object.keys(chats).forEach(function(k){if(chats[k].length>40)chats[k]=chats[k].slice(-40)});localStorage.setItem('OC6_CHAT',JSON.stringify(chats))}
-function paintChat(k){var el=document.getElementById('chat-'+k);if(el)el.innerHTML=chats[k].map(function(m){return '<div class="msg '+m.who+'">'+(m.who==='agent'?'<div class="who">'+m.n+'</div>':'')+m.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>')+'</div>'}).join('')}
-function suiteSend(k){
- var inp=document.getElementById('in-'+k),txt=inp.value.trim();if(!txt)return;
- var chat=chats[k];chat.push({who:'user',text:txt});inp.value='';saveChats();paintChat(k);
- q2(async function(){
-  try{
-   var s=SUITE_AGENTS.filter(function(x){return x.key===k})[0];
-   var hist=chat.slice(-6,-1).map(function(m){return (m.who==='user'?'USER: ':'AGENT: ')+m.text}).join('\n');
-   var res=await geminiJSON(s.sys,(hist?hist+'\n\n':'')+'USER: '+txt,CHAT2_SCHEMA);
-   var out=res&&res.message?String(res.message).slice(0,500):'(no response)';
-   var act=res&&res.action&&res.action.name&&res.action.name!=='none'?res.action:null;
-   if(act&&act.name==='generate_product'){var p=await toolGenerate(k);out+='\n⚙ Product created: '+p.title+' ('+usd(p.price)+') — see FINANCE'}
-   else if(act&&act.name==='crypto')out+='\n⚙ '+(await TOOLS2.crypto(act.param));
-   else if(act&&act.name==='fx'){var pp=(act.param||'USD-EUR').split('-');out+='\n⚙ '+(await TOOLS2.fx(pp[0],pp[1]))}
-   if(k==='fin'&&!/not financial advice/i.test(out))out+='\n_Not financial advice._';
-   chat.push({who:'agent',n:s.name,text:out});
-  }catch(e){chats[k].push({who:'agent',n:'SYSTEM',text:'⚠ '+(e.message||e)})}
-  saveChats();paintChat(k)})}
-/* [AUTO-AUDIT LOOP — agent logic + policy compliance] */
-setInterval(function(){
- var low=OC.state.agents.filter(function(a){return a.energy<30});
- if(low.length)audit('AURA','R_WELLNESS','flag',low.length+' agents low power: '+low.map(function(a){return a.name}).join(','));
- ledger.forEach(function(t){
-  if(t.status==='pending'&&Date.now()-t.ts>300000){t.status='flagged';t.error={code:'E_TIMEOUT',message:'pending >5 min',retryable:true};audit('MIDAS','R_TX_WATCH','flag','TX '+t.id+' stale → flagged')}});
- var bad=products.filter(function(p){return p.compliance&&p.compliance.flags.indexOf('R3_PROHIBITED_CLAIM')>-1&&p.status==='listed'});
- bad.forEach(function(p){p.status='draft';audit('COMPLIANCE','R3_PROHIBITED_CLAIM','block','product '+p.id+' pulled to draft')});
- saveLedger();saveProducts();
- if(document.getElementById('v-suite').classList.contains('on')&&suiteTab!=='agents')renderSuite();
-},45000);
-OC.Bus.on('task_complete',function(d){if(d&&(d.agent==='MIDAS'||d.agent==='AURA'))audit(d.agent,'R_TASK','pass','deliverable produced via core economy')});
-/* [UI — SUITE tab injection] */
-var vs=document.createElement('section');vs.className='view';vs.id='v-suite';   
- <!-- ═══ ORBITAL COMMAND v7 EXPANSION · PART 1/2 · paste before </body> ═══ -->
-<script>
-(function(){
-'use strict';
-var OC=window.OC;
-if(!OC||!OC.spawnAgent){console.warn('[OC7] v5 core missing — expansion idle');return}
+if(!OC||!OC.spawnAgent){console.warn('[V6] v5 core missing — expansion idle');return}
+/* ── [HELPERS] ── */
 function $(id){return document.getElementById(id)}
-function usd(n){return '$'+Math.round(n).toLocaleString()}
+function rand(a,b){return a+Math.random()*(b-a)}
+function pick(a){return a[Math.floor(Math.random()*a.length)]}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function fmt(n){return '$'+Math.round(n).toLocaleString()}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function ebr(s){return esc(s).replace(/\n/g,'<br>')}
 function dl(name,text){var b=new Blob([text],{type:'text/plain;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;a.click()}
 function LS(k,d){try{var v=JSON.parse(localStorage.getItem(k)||'null');return v==null?d:v}catch(e){return d}}
 function SS(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
-/* ── expansion state (OC7_*, replaces OC6) ── */
+/* defensive bridges to v5 internals */
+var ECON=OC.economy||{inventory:function(){return OC.state.inv||{}},invAdd:function(){},invTake:function(){return false}};
+var BUS=OC.Bus||{on:function(){},emit:function(){}};
+/* ── [X STATE — OC7_* keys preserved from previous builds] ── */
 var X={cfg:LS('OC7_CFG',{model:'gemini-2.0-flash',autoCap:25,style:'tactical'}),
  vault:{open:false,key:null,data:{creds:[]}},meta:LS('OC7_META',[]),
  chats:LS('OC7_CHATS',{}),hist:LS('OC7_HIST',[]),quirks:LS('OC7_QUIRKS',{}),
@@ -798,20 +635,37 @@ var X={cfg:LS('OC7_CFG',{model:'gemini-2.0-flash',autoCap:25,style:'tactical'}),
 function save(k){SS('OC7_'+k.toUpperCase(),X[k])}
 function log(type,text){X.acts.unshift({t:new Date().toLocaleTimeString(),type:type,text:String(text)});if(X.acts.length>150)X.acts.pop();save('acts')}
 function audit(agentId,rule,verdict,detail){X.audit.unshift({ts:Date.now(),agentId:agentId,rule:rule,verdict:verdict,detail:String(detail)});if(X.audit.length>200)X.audit.pop();save('audit')}
-/* ── [KEYRING v2 — multiple credentials, multiple logins, AES-256-GCM] ── */
+/* ── [TOOL RACK — Gemini's concept, wired to REAL engine effects] ── */
+OC.state.toolAssignments=OC.state.toolAssignments||{};
+var TOOLS_RACK=[
+ {id:'tool_scanner',name:'Diagnostic Scanner',icon:'🔍',effect:'audit_boost',desc:'Holder passes audits, sheds one flag per scan cycle, +1 reputation.'},
+ {id:'tool_extractor',name:'Resource Extractor',icon:'⛏️',effect:'resource_boost',desc:'+1 bonus output resource on every completed production task.'},
+ {id:'tool_optimizer',name:'Optimization Module',icon:'⚡',effect:'productivity_boost',desc:'+15% task progress per tick while equipped.'}];
+function toolHolder(toolId){return OC.state.toolAssignments[toolId]||null}
+function assignTool(toolId,agentId){OC.state.toolAssignments[toolId]=agentId||null;OC.saveState();
+ var a=OC.state.agents.filter(function(x){return x.id===agentId})[0];
+ log('sys','🧰 '+toolId.replace('tool_','')+' equipped → '+(a?a.name:'unassigned'));OC.feed('sys','🧰 Tool rack updated: '+(a?a.name+' holds '+toolId.replace('tool_',''):'tool unassigned'))}
+if(BUS.on)BUS.on('task_complete',function(d){ /* Extractor: bonus resource on production */
+ var holder=toolHolder('tool_extractor');if(!holder)return;
+ var a=OC.state.agents.filter(function(x){return x.name===d.agent})[0];
+ if(!a||a.id!==holder)return;
+ var outs=(SHIM_PLANETS[a.planet]||{}).produces||[];
+ if(outs.length){ECON.invAdd(a.planet,outs[0],1);
+  OC.feed('sys','⛏️ Extractor bonus: +1 '+SHIM_RES[outs[0]].tag+' for '+a.name)}});
+/* ── [VAULT — AES-256-GCM keyring, multi-credential + multi-login] ── */
 function b64(b){return btoa(String.fromCharCode.apply(null,new Uint8Array(b)))}
 function ub64(s){return Uint8Array.from(atob(s),function(c){return c.charCodeAt(0)})}
 async function deriveKey(pass,salt){var km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:150000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
-async function vaultSetup(pass){var salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));var k=await deriveKey(pass,salt);var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},k,new TextEncoder().encode(JSON.stringify({creds:[]})));localStorage.setItem('OC7_VAULT',JSON.stringify({salt:b64(salt),iv:b64(iv),ct:b64(ct)}));X.vault={open:true,key:k,data:{creds:[]}};log('sys','🔐 Keyring v2 initialized');syncMeta();renderSuite()}
+async function vaultSetup(pass){var salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));var k=await deriveKey(pass,salt);var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},k,new TextEncoder().encode(JSON.stringify({creds:[]})));localStorage.setItem('OC7_VAULT',JSON.stringify({salt:b64(salt),iv:b64(iv),ct:b64(ct)}));X.vault={open:true,key:k,data:{creds:[]}};log('sys','🔐 Keyring initialized');syncMeta()}
 async function vaultUnlock(pass){var raw=LS('OC7_VAULT',null);if(!raw)return false;try{var k=await deriveKey(pass,ub64(raw.salt));var pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:ub64(raw.iv)},k,ub64(raw.ct));X.vault={open:true,key:k,data:JSON.parse(new TextDecoder().decode(pt))};log('sys','🔓 Unlocked — '+X.vault.data.creds.length+' credentials');return true}catch(e){return false}}
 async function vaultPersist(){if(!X.vault.open)return;var raw=LS('OC7_VAULT',null),iv=crypto.getRandomValues(new Uint8Array(12));var ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},X.vault.key,new TextEncoder().encode(JSON.stringify(X.vault.data)));raw.iv=b64(iv);raw.ct=b64(ct);localStorage.setItem('OC7_VAULT',JSON.stringify(raw))}
 function syncMeta(){X.meta=X.vault.data.creds.map(function(c){return{id:c.id,platform:c.platform,label:c.label,status:c.status,addedAt:c.addedAt,logins:c.logins.length}});save('meta')}
 function addCred(platform,label,scopes){if(!X.vault.open)return 'E_VAULT_LOCKED';var c={id:'crd_'+Date.now().toString(36),platform:platform,label:label||platform,status:'active',addedAt:Date.now(),scopes:(scopes||'').split(',').filter(Boolean),logins:[]};X.vault.data.creds.push(c);vaultPersist();syncMeta();audit('VAULT','CRED_ADD','pass',platform);log('sys','🔑 '+platform+' credential created');return c.id}
 function addLogin(credId,username,secret,mfa){var c=X.vault.data.creds.filter(function(x){return x.id===credId})[0];if(!c)return 'E_NO_CRED';if(!username||!secret)return 'E_VALIDATION missing:username/secret';c.logins.push({id:'log_'+Date.now().toString(36),username:username,secret:secret,mfa:mfa||null});vaultPersist();syncMeta();audit('VAULT','LOGIN_ADD','pass',c.platform+'/'+username);return 'ok'}
-function delCred(id){X.vault.data.creds=X.vault.data.creds.filter(function(c){return c.id!==id});vaultPersist();syncMeta();renderSuite()}
+function delCred(id){X.vault.data.creds=X.vault.data.creds.filter(function(c){return c.id!==id});vaultPersist();syncMeta()}
 function hasCred(p){return X.vault.open&&X.vault.data.creds.some(function(c){return c.platform===p&&c.status==='active'&&c.logins.length})}
 function geminiKey(){if(!X.vault.open)return null;var c=X.vault.data.creds.filter(function(x){return x.platform==='gemini'&&x.status==='active'})[0];return c&&c.logins[0]?c.logins[0].secret:null}
-/* ── [SUITE AGENTS + dynamic personalities] ── */
+/* ── [SUITE AGENTS + DYNAMIC PERSONALITIES] ── */
 var SUITE=[{key:'fin',name:'MIDAS',roleKey:'m2m',planetId:'m2m',persona:{em:'📈',name:'Strategist',line:'Alpha compounds daily.'},base:'You are MIDAS, a data-driven financial strategist agent. Numbers-first, concise. ALWAYS include "Not financial advice." in advice or products.'},
  {key:'well',name:'AURA',roleKey:'pleasure',planetId:'pleasure',persona:{em:'🌿',name:'Mentor',line:'Wellness is a system.'},base:'You are AURA, an empathetic holistic wellness mentor. Supportive and practical; never diagnose or prescribe. ALWAYS include "Wellness guidance, not medical advice."'}];
 var STYLES={tactical:'Terse, bullet-style, mission-focused.',diplomatic:'Warm, collaborative, diplomatic.',dramatic:'Cinematic and bold.',concise:'Maximum 15 words per reply.'};
@@ -820,8 +674,8 @@ function ensureAgents(){SUITE.forEach(function(s){
  if(!OC.state.agents.some(function(a){return a.name===s.name})){OC.spawnAgent(s.name,s.roleKey,s.planetId,s.persona,3);log('sys','🆕 '+s.name+' deployed on '+s.planetId)}
  if(!X.since[s.name]){X.since[s.name]=Date.now();save('since')}})}
 function sysFor(s){var q=X.quirks[s.key]||[];return s.base+'\nResponse style: '+X.cfg.style+' — '+STYLES[X.cfg.style]+'.'+(q.length?'\nPersonality quirks: '+q.join('; ')+'.':'')}
-function rollQuirks(key){var pool=QUIRK_POOL.slice(),q=[];for(var i=0;i<2;i++){q.push(pool.splice(Math.floor(Math.random()*pool.length),1)[0])}X.quirks[key]=q;save('quirks');var s=SUITE.filter(function(x){return x.key===key})[0];log('sys','🎲 '+s.name+' rerolled: '+q.join(' + '));audit(s.name,'R_QUIRK','pass',q.join(','))}
-/* ── [LLM mini-engine — queue + backoff + vault key] ── */
+function rollQuirks(key){var pool=QUIRK_POOL.slice(),q=[];for(var i=0;i<2;i++)q.push(pool.splice(Math.floor(Math.random()*pool.length),1)[0]);X.quirks[key]=q;save('quirks');var s=SUITE.filter(function(x){return x.key===key})[0];log('sys','🎲 '+s.name+' rerolled: '+q.join(' + '));audit(s.name,'R_QUIRK','pass',q.join(','))}
+/* ── [LLM MINI-ENGINE — queue + backoff + vault key] ── */
 var Q2={list:[],busy:false};
 function q2(job){Q2.list.push(job);if(Q2.list.length>6)Q2.list.shift();pump2()}
 async function pump2(){if(Q2.busy)return;Q2.busy=true;while(Q2.list.length){try{await Q2.list.shift()()}catch(e){log('flag','⚠ '+(e.message||e))}}Q2.busy=false}
@@ -852,7 +706,7 @@ async function toolGenerate(k){var s=SUITE.filter(function(x){return x.key===k})
  var res=await geminiJSON(sysFor(s),PROD_PROMPTS[k],PROD_SCHEMA);if(!res)throw new Error('E_MODEL_EMPTY');
  var p={id:'PRD-'+Date.now().toString(36),type:k==='fin'?'ebook':'wellness_plan',title:String(res.title).slice(0,80),body:String(res.body).slice(0,4000),agentId:s.name,price:Math.max(1,Math.min(997,+res.price||9)),createdAt:Date.now(),status:'listed',compliance:{checked:false,flags:[]}};
  complianceCheck(p,s);X.products.push(p);save('products');
- log('asset','📦 '+s.name+' produced "'+p.title+'" ('+usd(p.price)+')');return p}
+ log('asset','📦 '+s.name+' produced "'+p.title+'" ('+fmt(p.price)+')');return p}
 var ledger=X.ledger;
 function saveLedger(){if(ledger.length>200)ledger=ledger.slice(-200);save('ledger')}
 function balance(){var b=0;ledger.forEach(function(t){if(t.status==='confirmed')b+=(t.type==='income'?t.amount:-t.amount)});return b}
@@ -865,14 +719,26 @@ function newTx(){
  t.currency='USD';t.ts=Date.now();t.id='TX-'+Date.now().toString(36);
  t.status=t.rail==='internal'?'confirmed':(t.amount<=X.cfg.autoCap?'approved':'pending');
  ledger.push(t);saveLedger();
- audit('MIDAS','TX_CREATE',t.status==='pending'?'flag':'pass',t.type+' '+usd(t.amount)+' '+t.rail);
- log('trade','💳 '+t.type+' '+usd(t.amount)+' '+t.rail+' → '+t.status);renderSuite()}
+ audit('MIDAS','TX_CREATE',t.status==='pending'?'flag':'pass',t.type+' '+fmt(t.amount)+' '+t.rail);
+ log('trade','💳 '+t.type+' '+fmt(t.amount)+' '+t.rail+' → '+t.status);renderSuite()}
 function txAction(id,act){var t=ledger.filter(function(x){return x.id===id})[0];if(!t)return;
  if(act==='approve'&&t.status==='pending')t.status='approved';
- else if(act==='confirm'&&(t.status==='approved'||t.status==='flagged')){t.status='confirmed';t.error=null;log('sale','✅ '+t.id+' confirmed '+usd(t.amount))}
+ else if(act==='confirm'&&(t.status==='approved'||t.status==='flagged')){t.status='confirmed';t.error=null;log('sale','✅ '+t.id+' confirmed '+fmt(t.amount))}
  else if(act==='retry'&&t.error&&t.error.retryable){t.status='pending';t.error=null;audit('FIN','TX_RETRY','pass',t.id)}
  else if(act==='fail'){t.status='failed';t.error={code:'E_USER_MARKED',message:'marked failed',retryable:false}}
  saveLedger();renderSuite()}
+function sellProduct(pid,platform){
+ var p=X.products.filter(function(x){return x.id===pid})[0];if(!p)return;
+ if(!hasCred(platform)){log('flag','🚫 E_NO_CREDENTIAL: '+platform);audit('SALES','R_CRED','flag','missing '+platform);return}
+ var txt='#'+platform.toUpperCase()+' POST PACKAGE\n\n'+p.title+' — '+fmt(p.price)+'\n\n'+p.body.slice(0,900)+'\n\nCTA: link in bio / DM.\n'+(p.compliance.flags.length?'⚠ Flags: '+p.compliance.flags.join(','):'✅ Compliance clean — disclosures verified')+'\n'+(p.price<=X.cfg.autoCap?'Auto-approved under cap.':'Requires one-tap approval over '+fmt(X.cfg.autoCap)+'.');
+ dl('post-'+platform+'-'+p.id+'.txt',txt);
+ var rail=hasCred('cashapp')?'cashapp':(hasCred('venmo')?'venmo':'internal');
+ var li=(X.vault.data.creds.filter(function(c){return c.platform===rail})[0]||{logins:[]}).logins[0];
+ var t={id:'TX-'+Date.now().toString(36),type:'income',rail:rail,amount:p.price,currency:'USD',agentId:p.agentId,memo:'Sale: '+p.title,ts:Date.now(),status:p.price<=X.cfg.autoCap?'approved':'pending',link:payLink(rail,li?li.username:'YOURHANDLE',p.price),error:null};
+ ledger.push(t);saveLedger();p.status='listed';save('products');
+ log('sale','🛍 '+p.title+' → '+platform+' · intent '+t.id+' ('+t.status+')');
+ audit('SALES','R_DISCLOSURE','pass','disclosure included');
+ renderSuite()}
 /* ── [AGENT-TO-AGENT TRANSFERS + REWARDS] ── */
 function transferTask(fromId,toId){
  var st=OC.state.agents,f=st.filter(function(x){return x.id===fromId})[0],t=st.filter(function(x){return x.id===toId})[0];
@@ -886,11 +752,10 @@ function transferTask(fromId,toId){
  OC.feed('sys','🤝 HANDOFF OK: "'+task+'" '+f.name+' → '+t.name+' · +25/+15 cr · '+t.name+' rep '+X.rep[t.id]);
  audit('HANDOFF','R_TRANSFER','pass',f.name+'→'+t.name)}
 function grantTool(fromName,toId,tool){X.grants[toId]=X.grants[toId]||[];if(X.grants[toId].indexOf(tool)<0)X.grants[toId].push(tool);save('grants');var t=OC.state.agents.filter(function(x){return x.id===toId})[0];log('sys','🧰 Tool "'+tool+'" granted to '+(t?t.name:toId));audit('TOOLS','R_GRANT','pass',tool)}
-OC.Bus.on('task_complete',function(d){
+if(BUS.on)BUS.on('task_complete',function(d){
  var a=OC.state.agents.filter(function(x){return x.name===d.agent})[0];
- if(a&&(a.energy||0)>50){X.rep[a.id]=(X.rep[a.id]||0)+1;a.credits+=10;save('rep');log('sys','🏅 '+a.name+' +10 cr — optimal processing bonus (rep '+(X.rep[a.id]||0)+')')}
- if(d.agent==='MIDAS'||d.agent==='AURA')audit(d.agent,'R_TASK','pass','suite deliverable')});
-/* ── [SUITE CHAT — history, autocomplete, styles, quirks] ── */
+ if(a&&(a.energy||0)>50){X.rep[a.id]=(X.rep[a.id]||0)+1;a.credits+=10;save('rep');log('sys','🏅 '+a.name+' +10 cr — optimal processing bonus (rep '+(X.rep[a.id]||0)+')')}});
+/* ── [SUITE CHAT — history · autocomplete · styles · quirks] ── */
 var COMMANDS=['status','travel to','audit','trade','generate product','price check','fx check','work','rest','export'];
 function chatFor(k){if(!X.chats[k])X.chats[k]=[];return X.chats[k]}
 function paintChat(k){var el=$('chat-'+k);if(el)el.innerHTML=chatFor(k).map(function(m){return '<div class="msg '+m.who+'">'+(m.who==='agent'?'<div class="who">'+esc(m.n)+'</div>':'')+ebr(m.text)+'</div>'}).join('')}
@@ -901,11 +766,11 @@ function suiteSend(k){
  q2(async function(){
   try{
    var s=SUITE.filter(function(x){return x.key===k})[0];
-   var hist=chat.slice(-6).map(function(m){return (m.who==='user'?'USER: ':'AGENT: ')+m.text}).join('\n');
+   var hist=chat.slice(-6,-1).map(function(m){return (m.who==='user'?'USER: ':'AGENT: ')+m.text}).join('\n');
    var res=await geminiJSON(sysFor(s),(hist?hist+'\n\n':'')+'USER: '+txt,CHAT2_SCHEMA);
    var out=res&&res.message?String(res.message).slice(0,500):'(no response)';
    var act=res&&res.action&&res.action.name&&res.action.name!=='none'?res.action:null;
-   if(act&&act.name==='generate_product'){var p=await toolGenerate(k);out+='\n⚙ Created: '+p.title+' ('+usd(p.price)+') — FINANCE tab'}
+   if(act&&act.name==='generate_product'){var p=await toolGenerate(k);out+='\n⚙ Created: '+p.title+' ('+fmt(p.price)+') — FINANCE tab'}
    else if(act&&act.name==='crypto')out+='\n⚙ '+(await TOOLS2.crypto(act.param));
    else if(act&&act.name==='fx'){var pp=(act.param||'USD-EUR').split('-');out+='\n⚙ '+(await TOOLS2.fx(pp[0],pp[1]))}
    if(k==='fin'&&!/not financial advice/i.test(out))out+='\n_Not financial advice._';
@@ -917,126 +782,12 @@ function renderSuggest(k,q){var el=$('sug-'+k);if(!el)return;
  var m=COMMANDS.filter(function(c){return !q||c.indexOf(q.toLowerCase())>-1}).slice(0,4);
  el.innerHTML=m.map(function(c){return '<button style="margin:2px;padding:4px 8px;font-size:10px" data-s="'+c+'">'+c+'…</button>'}).join('');
  el.querySelectorAll('[data-s]').forEach(function(b){b.onclick=function(){var inp=$('in-'+k);inp.value=b.dataset.s+' ';inp.focus();renderSuggest(k,b.dataset.s)}})}
-/* ── [SUITE UI] ── */
-var vs=document.createElement('section');vs.className='view';vs.id='v-suite';
-vs.innerHTML='<div class="scroll" id="suiteBody"></div>';
-document.querySelector('main').appendChild(vs);
-var nb=document.createElement('button');nb.dataset.v='suite';nb.innerHTML='<span class="ic">🧬</span>SUITE';
-document.querySelector('nav').appendChild(nb);
-nb.onclick=function(){document.querySelectorAll('.view').forEach(function(x){x.classList.remove('on')});vs.classList.add('on');document.querySelectorAll('nav button').forEach(function(b){b.classList.toggle('on',b===nb)});renderSuite()};
-function tabBtns(){return ['roster','chat','vault','finance','feed','ops'].map(function(t){return '<button style="margin:2px;padding:6px 10px;font-size:10px'+(X.tab===t?';border-color:var(--cyan);color:var(--cyan)':'')+'" data-tab="'+t+'">'+t.toUpperCase()+'</button>'}).join('')}
-function paintUptime(){var now=Date.now();OC.state.agents.forEach(function(a){var el=$('up-'+a.id);if(el)el.textContent=up(a)})}
-function up(a){var s=Math.floor((now()-(X.since[a.name]||now()))/1000);var h=Math.floor(s/3600),m=Math.floor(s%3600/60);return (h?h+'h ':'')+m+'m'}
-function now(){return Date.now()}
-function renderSuite(){
- var b=$('suiteBody');if(!b)return;var h='<div style="margin-bottom:8px">'+tabBtns()+'</div>';
- if(X.tab==='roster')h+=rosterHTML();
- else if(X.tab==='chat')h+=chatHTML();
- else if(X.tab==='vault')h+=vaultHTML();
- else if(X.tab==='finance')h+=financeHTML();
- else if(X.tab==='feed')h+=feedHTML();
- else if(X.tab==='ops')h+=opsHTML();
- b.innerHTML=h;
- if(X.tab==='roster')bindRoster();
- if(X.tab==='chat')bindChat();
- if(X.tab==='vault')bindVault();
- if(X.tab==='finance')bindFinance();
- if(X.tab==='feed')bindFeed();
- if(X.tab==='ops')bindOps();
- if(X.tab==='chat'){Object.keys(X.chats).forEach(paintChat)}}
-/* roster+: color icons, quick actions, uptime */
-var STATUS_COLOR={working:'var(--green)',traveling:'var(--cyan)',resting:'var(--amber)',queued:'var(--amber)',blocked:'var(--red)'};
-function rosterHTML(){
- var destSel='<select id="batchDest" style="width:auto;margin:0 6px">'+PLANETS.map(function(p){return '<option value="'+p.id+'">'+p.id+'</option>'}).join('')+'</select>';
- return '<div class="sect">ROSTER+ — live status · uptime · quick dispatch</div>'+
-  OC.state.agents.map(function(a){
-   var st=a.blocked?'blocked':a.status,col=STATUS_COLOR[st]||'var(--dim)';
-   return '<div class="card"><div class="row1"><span class="name"><span style="color:'+col+'">●</span> '+a.persona.em+' '+esc(a.name)+'</span>'+
-    '<span style="font-size:10px;color:'+col+'">'+st.toUpperCase()+' ⏱ <span id="up-'+a.id+'"></span></span></div>'+
-    '<div class="meta">'+a.id+' · 🪐 '+esc(a.planet)+' · ⚡'+Math.round(a.energy)+'% · 🏅'+a.completed+' · 📈'+a.productivity+'% · 🎓LV'+skillLvl(a,a.planet)+(a.traits&&a.traits.length?' · ☣'+esc(a.traits.join('/')):'')+' · ⭐rep '+(X.rep[a.id]||0)+'</div>'+
-    '<div class="bar"><i style="width:'+a.energy+'%;background:var(--green)"></i><i style="width:'+clamp(a.progress/Math.max(a.needTicks,1)*100,0,100)+'%;background:var(--cyan)"></i></div>'+
-    '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'+
-    '<button style="padding:6px 9px;font-size:10px" data-qa="work" data-id="'+a.id+'">⚙ WORK</button>'+
-    '<button style="padding:6px 9px;font-size:10px" data-qa="go" data-id="'+a.id+'">🚀 GO'+destSel.replace('id="batchDest"','class="qa-dest" data-id="'+a.id+'" style="width:auto;padding:4px"')+'</button>'+
-    '<button style="padding:6px 9px;font-size:10px" data-qa="rest" data-id="'+a.id+'">😴 REST</button>'+
-    '<button style="padding:6px 9px;font-size:10px" data-qa="audit" data-id="'+a.id+'">🔍 AUDIT</button>'+
-    '<button style="padding:6px 9px;font-size:10px" data-qa="xfer" data-id="'+a.id+'">🤝 HANDOFF</button></div></div>'}).join('')}
-function bindRoster(){
- paintUptime();
- $('suiteBody').querySelectorAll('[data-qa]').forEach(function(b){b.onclick=function(){
-  var a=OC.state.agents.filter(function(x){return x.id===b.dataset.id})[0];if(!a)return;
-  var qa=b.dataset.qa;
-  if(qa==='work')OC.execAction(a,'work','');
-  else if(qa==='go'){var sel=b.parentElement.querySelector('.qa-dest');OC.travel(a,sel?sel.value:pickDest())}
-  else if(qa==='rest'){a.status='resting';a.task='Resting';OC.feed('sys','😴 '+a.name+' standing down to recharge')}
-  else if(qa==='audit')OC.audit();
-  else if(qa==='xfer'){var to=prompt('Handoff "'+a.task+'" to agent ID (e.g. A-003):');if(to)transferTask(a.id,to)}
- }})}
-function pickDest(){return PLANETS[Math.floor(Math.random()*PLANETS.length)].id}
-/* feed+: filters, search, metrics, scroll control */
-var FEED_TYPES=['sys','flag','trade','sale','asset'];
-function feedHTML(){
- var counts={};FEED_TYPES.forEach(function(t){counts[t]=OC.state.feed.filter(function(e){return e.type===t}).length});
- var q=X.feedSearch.toLowerCase();
- var list=OC.state.feed.filter(function(e){return (!X.feedFilter[e.type])&&(!q||e.text.toLowerCase().indexOf(q)>-1)});
- return '<div class="sect">FEED+ — '+list.length+' shown · '+OC.state.feed.length+' total</div>'+
-  '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">'+
-  FEED_TYPES.map(function(t){return '<button style="padding:5px 9px;font-size:10px;'+(X.feedFilter[t]?'opacity:.4':'')+'" data-ft="'+t+'">'+t+' ('+counts[t]+')</button>'}).join('')+
-  '<button style="padding:5px 9px;font-size:10px" id="feedPause">'+(X.feedPause?'▶ RESUME SCROLL':'⏸ PAUSE SCROLL')+'</button>'+
-  '<button style="padding:5px 9px;font-size:10px" id="feedTop">⬆ TOP</button></div>'+
-  '<input id="feedSearch" placeholder="Search feed…" value="'+esc(X.feedSearch)+'" style="margin-bottom:8px">'+
-  '<div id="feedList2">'+list.slice(0,80).map(function(e){return '<div class="ev t-'+e.type+'"><span class="ts">'+e.t+'</span>'+ebr(e.text)+'</div>'}).join('')+'</div>'}
-function bindFeed(){
- $('suiteBody').querySelectorAll('[data-ft]').forEach(function(b){b.onclick=function(){X.feedFilter[b.dataset.ft]=!X.feedFilter[b.dataset.ft];renderSuite()}});
- $('feedPause').onclick=function(){X.feedPause=!X.feedPause;renderSuite()};
- $('feedTop').onclick=function(){var el=$('feedList2');if(el)el.scrollIntoView()};
- var s=$('feedSearch');if(s)s.oninput=function(){X.feedSearch=s.value;paintFeed()}}
-function paintFeed(){var el=$('feedList2');if(!el)return;var q=X.feedSearch.toLowerCase();
- el.innerHTML=OC.state.feed.filter(function(e){return (!X.feedFilter[e.type])&&(!q||e.text.toLowerCase().indexOf(q)>-1)}).slice(0,80).map(function(e){return '<div class="ev t-'+e.type+'"><span class="ts">'+e.t+'</span>'+ebr(e.text)+'</div>'}).join('')}
-/* ops+: supply viz, batch processing, progress */
-function opsHTML(){
- var inv=OC.economy.inventory();
- var maxR=Math.max.apply(null,Object.keys(RES).map(function(r){return totalInv(r)}))||1;
- var h='<div class="sect">SUPPLY CHAIN — planetary stock (click ops bar = full inventory)</div>';
- h+=PLANETS.filter(function(p){return (p.consumes&&p.consumes.length)||(p.produces&&p.produces.length)}).map(function(p){
-  var st=inv[p.id]||{},tot=Object.keys(RES).reduce(function(s,r){return s+(st[r]||0)},0);
-  var ch=((p.consumes||[]).map(function(r){return RES[r].tag}).join('+')||'—')+' → '+((p.produces||[]).map(function(r){return RES[r].tag}).join('+')||'SALE');
-  return '<div class="card"><div class="row1"><span class="name">'+esc(p.name)+'</span><span class="chain">'+ch+'</span></div>'+
-   '<div class="bar"><i style="width:'+clamp(tot/maxR*100,3,100)+'%;background:var(--violet)"></i></div>'+
-   '<div class="meta">'+Object.keys(RES).map(function(r){return (st[r]||0)+'×'+RES[r].tag}).join(' · ')+'</div></div>'}).join('');
- h+='<div class="sect">BATCH DISPATCH — queue N agents to a world</div><div class="card">'+
-  '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">AGENTS <input id="batchN" type="number" min="1" max="8" value="3" style="width:60px"> → '+
-  '<select id="batchDest2" style="width:auto">'+PLANETS.map(function(p){return '<option value="'+p.id+'">'+p.id+'</option>'}).join('')+'</select>'+
-  '<button class="primary" id="batchGo">📦 DISPATCH BATCH</button></div>'+
-  (X.batch.length?'<div class="meta" style="margin-top:6px">'+X.batch.map(function(x,i){return (x.ok===null?'⏳':(x.ok?'✅':'❌'))+' '+esc(x.name)}).join(' · ')+'</div>':'')+'</div>';
- return h}
-function totalInv(res){return PLANETS.reduce(function(s,p){return s+((OC.economy.inventory()[p.id]||{})[res]||0)},0)}
-function bindOps(){$('batchGo').onclick=batchDispatch}
-function batchDispatch(){
- var dest=($('batchDest2')||{}).value||pickDest(),n=Math.min(8,+$('batchN').value||1);
- var pool=OC.state.agents.filter(function(a){return a.status!=='traveling'}).slice(0,n);
- X.batch=pool.map(function(a){return{name:a.name,ok:null}});renderSuite();
- pool.forEach(function(a,i){setTimeout(function(){X.batch[i].ok=!!OC.travel(a,dest);log('sys','📦 batch['+(i+1)+'/'+pool.length+'] '+a.name+' → '+dest+': '+(X.batch[i].ok?'launched':'queued/denied'));renderSuite()},i*400)})}
-/* vault tab */
-function vaultHTML(){
- if(!X.vault.open){
-  return '<div class="sect">KEYRING v2 — LOCKED</div><div class="card">'+
-  '<div class="meta">AES-256-GCM · passphrase-derived · multiple credentials & logins per platform</div>'+
-  (LS('OC7_VAULT',null)?'<input id="vp" type="password" placeholder="Passphrase" style="margin:8px 0"><button class="primary" id="vUnlock" style="width:100%">🔓 UNLOCK</button>':'<input id="vp" type="password" placeholder="Create passphrase" style="margin:8px 0"><button class="primary" id="vSetup" style="width:100%">🔐 INITIALIZE KEYRING</button>')+'</div>'+
-  '<div class="meta" style="margin-top:6px">Stored locally, encrypted. For production, route model calls through a server-side proxy — browser storage is never bank-grade.</div>';
- }
- return '<div class="sect">KEYRING v2 — '+X.vault.data.creds.length+' credentials</div>'+
-  '<div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap">'+
-  '<select id="credPlatform" style="width:auto">'+['gemini','instagram','youtube','tiktok','facebook','cashapp','venmo','other'].map(function(p){return '<option>'+p+'</option>'}).join('')+'</select>'+
-  '<input id="credLabel" placeholder="Label" style="flex:1;min-width:90px">'+
-  '<button class="primary" id="credAdd">+ C  
-/* ═══ v7 PART 2 — compat shims · vault/finance/chat · MAP ENGINE · boot ═══ */
-/* [COMPAT SHIMS — safe local mirrors of v5 internals] */
-var clamp=function(v,a,b){return Math.max(a,Math.min(b,v))};
-var pick=function(a){return a[Math.floor(Math.random()*a.length)]};
+/* ── [COMPAT SHIMS — v5 internals mirrored locally] ── */
 function skillLvl(a,p){return Math.min(5,Math.floor(((a.skills||{})[p]||0)/3))}
-var RES={trend:{tag:'TR'},data:{tag:'DA'},ip:{tag:'IP'},persona:{tag:'PW'},demand:{tag:'DM'}};
-var PLANETS=[
+function hasTrait(a,t){return (a.traits||[]).indexOf(t)>-1}
+var SHIM_RES={trend:{tag:'TR'},data:{tag:'DA'},ip:{tag:'IP'},persona:{tag:'PW'},demand:{tag:'DM'}};
+var SHIM_RES_FULL={trend:{label:'Trend Array',tag:'TR',base:60},data:{label:'Data Pack',tag:'DA',base:90},ip:{label:'Content IP',tag:'IP',base:180},persona:{label:'Persona Weights',tag:'PW',base:150},demand:{label:'Market Demand',tag:'DM',base:40}};
+var SHIM_PLANETS=[
  {id:'command',name:'Command HQ',color:'#00e5ff',orbit:0,speed:0,angle:0,consumes:null,produces:null},
  {id:'social',name:'Social Media Hub',color:'#ff4fd8',orbit:90,speed:.00045,angle:.4,consumes:['ip'],produces:['demand']},
  {id:'ebook',name:'E-Book Nexus',color:'#4f8dff',orbit:140,speed:.00034,angle:2.1,consumes:['data'],produces:['ip']},
@@ -1045,132 +796,9 @@ var PLANETS=[
  {id:'influencer',name:'AI Influencer World',color:'#b44fff',orbit:280,speed:.00021,angle:5.3,consumes:['data'],produces:['persona']},
  {id:'market',name:'Consumer Market',color:'#22e58c',orbit:325,speed:.00016,angle:1.2,consumes:['ip','demand'],produces:[]},
  {id:'m2m',name:'M2M Exchange',color:'#ff5533',orbit:370,speed:.00012,angle:3.4,consumes:null,produces:null}];
-PLANETS.forEach(function(p){p.angle+=Math.random()*6.28});
-var byId={};PLANETS.forEach(function(p){byId[p.id]=p});
-/* [VAULT TAB — multiple credentials, multiple logins each] */
-function vaultHTML(){
- if(!X.vault.open){
-  return '<div class="sect">KEYRING v2 — LOCKED</div><div class="card">'+
-   '<div class="meta">AES-256-GCM · multiple credentials · multiple logins per platform</div>'+
-   (LS('OC7_VAULT',null)?'<input id="vp" type="password" placeholder="Passphrase" style="margin:8px 0"><button class="primary" id="vUnlock" style="width:100%">🔓 UNLOCK</button>':'<input id="vp" type="password" placeholder="Create passphrase (6+ chars)" style="margin:8px 0"><button class="primary" id="vSetup" style="width:100%">🔐 INITIALIZE KEYRING</button>')+'</div>'+
-   '<div class="meta" style="margin-top:6px">Encrypted locally with your passphrase. Production: route keys through a server-side proxy.</div>';
- }
- var logins=X.vault.data.creds.reduce(function(s,c){return s+c.logins.length},0);
- return '<div class="sect">KEYRING v2 — '+X.vault.data.creds.length+' credentials · '+logins+' logins</div>'+
-  '<div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
-  '<select id="credPlatform" style="width:auto">'+['gemini','instagram','youtube','tiktok','facebook','cashapp','venmo','other'].map(function(p){return '<option>'+p+'</option>'}).join('')+'</select>'+
-  '<input id="credLabel" placeholder="Label" style="flex:1;min-width:90px">'+
-  '<input id="credScopes" placeholder="scopes,comma-sep" style="flex:1;min-width:90px">'+
-  '<button class="primary" id="credAdd">+ CREDENTIAL</button></div></div>'+
-  X.vault.data.creds.map(function(c){
-   return '<div class="card"><div class="row1"><span class="name">'+esc(c.platform)+' — '+esc(c.label)+'</span>'+
-    '<span style="font-size:10px;color:'+(c.status==='active'?'var(--green)':'var(--red)')+'">'+c.status.toUpperCase()+'</span></div>'+
-    '<div class="meta">scopes: '+(c.scopes.join(',')||'—')+'</div>'+
-    c.logins.map(function(l){return '<div class="meta">🔑 '+esc(l.username)+' · '+esc(l.secret.slice(0,4))+'••••'+(l.mfa?' · MFA✓':'')+'</div>'}).join('')+
-    '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+
-    '<input class="lg-user" placeholder="username" style="flex:1;min-width:80px">'+
-    '<input class="lg-sec" type="password" placeholder="secret/key" style="flex:1;min-width:80px">'+
-    '<input class="lg-mfa" placeholder="MFA (opt)" style="width:70px">'+
-    '<button style="padding:6px 9px;font-size:10px" data-addlogin="'+c.id+'">+ LOGIN</button>'+
-    '<button class="warn" style="padding:6px 9px;font-size:10px" data-delcred="'+c.id+'">DELETE</button></div></div>'}).join('')+
-  '<button id="vSeal" style="width:100%;margin-top:6px">🔒 SEAL VAULT</button>'}
-function bindVault(){
- var su=$('vSetup'),ul=$('vUnlock');
- if(su)su.onclick=function(){var p=$('vp').value;if(p&&p.length>=6)vaultSetup(p);else alert('Passphrase min 6 characters')};
- if(ul)ul.onclick=async function(){var ok=await vaultUnlock($('vp').value);if(!ok)alert('Wrong passphrase');renderSuite()};
- var ca=$('credAdd');if(ca)ca.onclick=function(){var err=addCred($('credPlatform').value,$('credLabel').value,$('credScopes').value);if(err)alert(err);renderSuite()};
- $('suiteBody').querySelectorAll('[data-addlogin]').forEach(function(b){b.onclick=function(){
-  var card=b.closest('.card');
-  var err=addLogin(b.dataset.addlogin,card.querySelector('.lg-user').value,card.querySelector('.lg-sec').value,card.querySelector('.lg-mfa').value);
-  if(err)alert(err);renderSuite()}});
- $('suiteBody').querySelectorAll('[data-delcred]').forEach(function(b){b.onclick=function(){if(confirm('Delete credential and all its logins?'))delCred(b.dataset.delcred)}});
- var seal=$('vSeal');if(seal)seal.onclick=function(){X.vault={open:false,key:null,data:{creds:[]}};log('sys','🔒 Vault sealed');renderSuite()}}
-/* [FINANCE TAB — ledger, rails, products, compliance] */
-function financeHTML(){
- var h='<div class="sect">FINANCE — balance '+usd(balance())+' · autoCap '+usd(X.cfg.autoCap)+'</div>';
- h+='<div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
-  '<select id="txType" style="width:auto">'+['income','payout','transfer','fee'].map(function(t){return '<option>'+t+'</option>'}).join('')+'</select>'+
-  '<select id="txRail" style="width:auto">'+['cashapp','venmo','zelle','internal'].map(function(t){return '<option>'+t+'</option>'}).join('')+'</select>'+
-  '<input id="txHandle" placeholder="$handle" style="width:90px">'+
-  '<input id="txAmt" type="number" placeholder="amount" style="width:80px">'+
-  '<input id="txMemo" placeholder="memo" style="flex:1;min-width:90px">'+
-  '<input id="txAgent" placeholder="agent" style="width:80px" value="MIDAS">'+
-  '<button class="primary" id="txGo">＋ TX</button></div>'+
-  '<div class="meta">CashApp/Venmo → payment links · Zelle → manual send + confirm · ≤'+usd(X.cfg.autoCap)+' auto-approved</div></div>';
- h+='<div class="sect">PRODUCTS — generate · compliance-check · sell</div>'+
-  '<div style="display:flex;gap:6px;margin-bottom:8px"><button class="primary" id="genFin">📈 MIDAS PRODUCT</button><button id="genWell" style="border-color:var(--green);color:var(--green)">🌿 AURA PRODUCT</button></div>'+
-  (X.products.length?X.products.slice(-10).reverse().map(function(p){
-   return '<div class="card"><div class="row1"><span>'+esc(p.title)+'</span><span style="font-size:10px;color:'+(p.status==='sold'?'var(--green)':'var(--cyan)')+'">'+usd(p.price)+' '+p.status.toUpperCase()+'</span></div>'+
-    '<div class="meta">by '+esc(p.agentId)+' · '+(p.compliance&&p.compliance.flags.length?'⚠ '+esc(p.compliance.flags.join(',')):'✅ compliance clean')+'</div>'+
-    '<div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap">'+
-    ['instagram','youtube','tiktok','facebook'].map(function(pl){return '<button style="padding:5px 8px;font-size:10px" data-sell="'+p.id+'" data-pl="'+pl+'">'+pl.slice(0,2).toUpperCase()+'</button>'}).join('')+
-    '<button style="padding:5px 8px;font-size:10px" data-dlprod="'+p.id+'">💾 .MD</button></div></div>'}).join(''):'<div class="empty">No products yet</div>');
- h+='<div class="sect">LEDGER</div>'+(ledger.length?ledger.slice(0,12).map(function(t){
-   var col={confirmed:'var(--green)',approved:'var(--cyan)',pending:'var(--amber)',flagged:'var(--red)',failed:'var(--red)'}[t.status]||'var(--dim)';
-   return '<div class="card"><div class="row1"><span style="font-size:11px">'+t.type+' · '+usd(t.amount)+' · '+t.rail+'</span><span style="font-size:10px;color:'+col+'">'+t.status.toUpperCase()+'</span></div>'+
-    '<div class="meta">'+esc(t.memo||t.id)+' · '+new Date(t.ts).toLocaleTimeString()+(t.error?' · ⚠ '+t.error.code:'')+'</div>'+
-    '<div style="display:flex;gap:5px;margin-top:5px;flex-wrap:wrap">'+
-    (t.status==='pending'?'<button style="padding:5px 8px;font-size:10px" data-tx="'+t.id+'" data-act="approve">✅ APPROVE</button>':'')+
-    (t.status==='approved'?'<button style="padding:5px 8px;font-size:10px" data-tx="'+t.id+'" data-act="confirm">🏁 CONFIRM</button>'+(t.link?' <a href="'+t.link+'" target="_blank" style="padding:5px 8px;font-size:10px;border:1px solid var(--line);border-radius:8px;text-decoration:none;color:var(--cyan)">↗ OPEN</a>':''):'')+
-    ((t.error&&t.error.retryable)?'<button style="padding:5px 8px;font-size:10px" data-tx="'+t.id+'" data-act="retry">🔁 RETRY</button>':'')+
-    '<button style="padding:5px 8px;font-size:10px" data-tx="'+t.id+'" data-act="fail">✖ FAIL</button></div></div>'}).join(''):'<div class="empty">No transactions</div>');
- h+='<button id="expLogs" style="width:100%;margin-top:8px">⬇ EXPORT LOGS (ledger · audit · activity)</button>';
- return h}
-function bindFinance(){
- $('txGo').onclick=newTx;
- $('genFin').onclick=function(){q2(async function(){try{await toolGenerate('fin');renderSuite()}catch(e){log('flag','⚠ '+(e.message||e))}})};
- $('genWell').onclick=function(){q2(async function(){try{await toolGenerate('well');renderSuite()}catch(e){log('flag','⚠ '+(e.message||e))}})};
- $('suiteBody').querySelectorAll('[data-sell]').forEach(function(b){b.onclick=function(){sellProduct(b.dataset.sell,b.dataset.pl)}});
- $('suiteBody').querySelectorAll('[data-dlprod]').forEach(function(b){b.onclick=function(){
-  var p=X.products.filter(function(x){return x.id===b.dataset.dlprod})[0];if(p)dl(p.id+'.md','# '+p.title+'\n\n'+p.body)}});
- $('suiteBody').querySelectorAll('[data-tx]').forEach(function(b){b.onclick=function(){txAction(b.dataset.tx,b.dataset.act)}});
- $('expLogs').onclick=function(){dl('oc7-logs.json',JSON.stringify({ledger:ledger,audit:X.audit,acts:X.acts,products:X.products},null,2))}}
-function sellProduct(pid,platform){
- var p=X.products.filter(function(x){return x.id===pid})[0];if(!p)return;
- if(!hasCred(platform)){log('flag','🚫 E_NO_CREDENTIAL: '+platform);audit('SALES','R_CRED','flag','missing '+platform);return}
- var txt='#'+platform.toUpperCase()+' POST PACKAGE\n\n'+p.title+' — '+usd(p.price)+'\n\n'+p.body.slice(0,900)+'\n\nCTA: link in bio / DM.\n'+(p.compliance.flags.length?'⚠ Flags: '+p.compliance.flags.join(','):'✅ Compliance clean — disclosures verified')+'\n'+(p.price<=X.cfg.autoCap?'Auto-approved under cap.':'Requires one-tap approval over '+usd(X.cfg.autoCap)+'.');
- dl('post-'+platform+'-'+p.id+'.txt',txt);
- var rail=hasCred('cashapp')?'cashapp':(hasCred('venmo')?'venmo':'internal');
- var li=(X.vault.data.creds.filter(function(c){return c.platform===rail})[0]||{logins:[]}).logins[0];
- var t={id:'TX-'+Date.now().toString(36),type:'income',rail:rail,amount:p.price,currency:'USD',agentId:p.agentId,memo:'Sale: '+p.title,ts:Date.now(),status:p.price<=X.cfg.autoCap?'approved':'pending',link:payLink(rail,li?li.username:'YOURHANDLE',p.price),error:null};
- ledger.push(t);saveLedger();p.status='listed';save('products');
- log('sale','🛍 '+p.title+' → '+platform+' · intent '+t.id+' ('+t.status+')');
- audit('SALES','R_DISCLOSURE','pass','disclosure included');
- renderSuite()}
-/* [CHAT TAB — history · autocomplete · styles · personality reroll] */
-function chatHTML(){
- return SUITE.map(function(s){
-  var q=X.quirks[s.key]||[];
-  return '<div class="sect">'+s.persona.em+' '+s.name+' — style: '+X.cfg.style+(q.length?' · 🎲 '+esc(q.join(' + ')):'')+'</div>'+
-   '<div class="card"><div id="chat-'+s.key+'" style="display:flex;flex-direction:column;max-height:220px;overflow-y:auto"></div>'+
-   '<div id="sug-'+s.key+'" style="margin-top:6px"></div>'+
-   '<div style="display:flex;gap:6px;margin-top:6px"><input id="in-'+s.key+'" placeholder="Directive… (↑ history)" style="flex:1"><button class="primary" data-send="'+s.key+'">➤</button></div>'+
-   '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+
-   '<select id="styleSel" style="width:auto">'+Object.keys(STYLES).map(function(k){return '<option'+(X.cfg.style===k?' selected':'')+'>'+k+'</option>'}).join('')+'</select>'+
-   '<button style="padding:6px 9px;font-size:10px" data-quirk="'+s.key+'">🎲 REROLL PERSONALITY</button>'+
-   '<button style="padding:6px 9px;font-size:10px" data-gen="'+s.key+'">⚡ GENERATE PRODUCT</button></div></div>'}).join('')+
-  '<div class="meta">Style + quirks are injected into every system prompt. MIDAS auto-appends "Not financial advice." and AURA "…not medical advice." — enforced in code, not just prompted.</div>'}
-function bindChat(){
- SUITE.forEach(function(s){
-  paintChat(s.key);
-  var inp=$('in-'+s.key);
-  inp.addEventListener('keydown',function(e){
-   if(e.key==='Enter')suiteSend(s.key);
-   if(e.key==='ArrowUp'){histNav(s.key,1);e.preventDefault()}
-   if(e.key==='ArrowDown'){histNav(s.key,-1);e.preventDefault()}});
-  inp.oninput=function(){renderSuggest(s.key,inp.value)}});
- $('suiteBody').querySelectorAll('[data-send]').forEach(function(b){b.onclick=function(){suiteSend(b.dataset.send)}});
- $('suiteBody').querySelectorAll('[data-quirk]').forEach(function(b){b.onclick=function(){rollQuirks(b.dataset.quirk);renderSuite()}});
- $('suiteBody').querySelectorAll('[data-gen]').forEach(function(b){b.onclick=function(){q2(async function(){try{await toolGenerate(b.dataset.gen);renderSuite()}catch(e){log('flag','⚠ '+(e.message||e))}})}});
- var ss=$('styleSel');if(ss)ss.onchange=function(){X.cfg.style=ss.value;SS('OC7_CFG',X.cfg);log('sys','🗣 Response style → '+ss.value);renderSuite()}}
-/* [AUTO-AUDIT LOOP — embedded in agent logic] */
-setInterval(function(){
- ledger.forEach(function(t){if(t.status==='pending'&&Date.now()-t.ts>300000){t.status='flagged';t.error={code:'E_TIMEOUT',message:'pending >5 min',retryable:true};audit('MIDAS','R_TX_WATCH','flag',t.id)}});
- X.products.forEach(function(p){if(p.compliance&&p.compliance.flags.indexOf('R3_PROHIBITED_CLAIM')>-1&&p.status==='listed'){p.status='draft';audit('COMPLIANCE','R3_PROHIBITED_CLAIM','block',p.id)}});
- var low=OC.state.agents.filter(function(a){return a.energy<30});
- if(low.length)audit('AURA','R_WELLNESS','flag',low.map(function(a){return a.name}).join(','));
- saveLedger();save('products')},45000);
-/* [MAP ENGINE — zoom · pan · collapsible systems · droppable planets · ships · corner HUD] */
+SHIM_PLANETS.forEach(function(p){p.angle+=Math.random()*6.28});
+var byId={};SHIM_PLANETS.forEach(function(p){byId[p.id]=p});
+/* ── [MAP ENGINE — zoom · pan · collapsible systems · droppable planets · corner HUD] ── */
 var MAP={zoom:1,px:0,py:0,collapsed:{inner:false,outer:false},offsets:LS('OC7_OFFSETS',{}),drag:null,pinch:null,loop:null};
 var SYSTEMS=[{id:'inner',name:'INNER SYSTEM',ids:['command','social','ebook','rnd','pleasure']},{id:'outer',name:'OUTER SYSTEM',ids:['influencer','market','m2m']}];
 function sysOf(id){return SYSTEMS.filter(function(s){return s.ids.indexOf(id)>-1})[0]||null}
@@ -1183,401 +811,6 @@ function mapHTML(){
   '<button style="padding:5px 9px;font-size:10px" id="mzIn">＋</button><button style="padding:5px 9px;font-size:10px" id="mzOut">－</button><button style="padding:5px 9px;font-size:10px" id="mzReset">⌂ RESET</button></div>'+
   '<div style="position:relative;height:340px;border:1px solid var(--line);border-radius:12px;overflow:hidden"><canvas id="map7" style="width:100%;height:100%;display:block;touch-action:none"></canvas></div>'+
   '<div class="meta">Ships = agents in transit · orbiting dots = stationed agents (red = blocked) · FULL ring = dock capacity '+(2+OC.state.ships)+' exceeded · corners = live resource grids</div>'}
-function bindMap(){
- $('suiteBody').querySelectorAll('[data-sys]').forEach(function(b){b.onclick=function(){MAP.collapsed[b.dataset.sys]=!MAP.collapsed[b.dataset.sys];renderSuite()}});
- $('mzIn').onclick=function(){MAP.zoom=Math.min(3,MAP.zoom*1.25)};
- $('mzOut').onclick=function(){MAP.zoom=Math.max(0.4,MAP.zoom/1.25)};
- $('mzReset').onclick=function(){MAP.zoom=1;MAP.px=0;MAP.py=0};
- var c=$('map7');sizeMap7(c);
- if(MAP.loop)cancelAnimationFrame(MAP.loop);
- mapLoop(c);
- var sc=function(){var r=c.getBoundingClientRect();return c.width/r.width};
- c.addEventListener('wheel',function(e){e.preventDefault();MAP.zoom=clamp(MAP.zoom*(e.deltaY<0?1.1:0.9),0.4,3)},{passive:false});
- c.addEventListener('pointerdown',function(e){var p=mapHit(c,e);
-  if(p)MAP.drag={id:p.id,sx:e.clientX,sy:e.clientY,ox:MAP.offsets[p.id]||{x:0,y:0},moved:false};
-  else MAP.drag={pan:true,sx:e.clientX,sy:e.clientY,opx:MAP.px,opy:MAP.py,moved:false};
-  c.setPointerCapture(e.pointerId)});
- c.addEventListener('pointermove',function(e){if(!MAP.drag)return;
-  if(Math.abs(e.clientX-MAP.drag.sx)+Math.abs(e.clientY-MAP.drag.sy)>6)MAP.drag.moved=true;
-  if(MAP.drag.pan){MAP.px=MAP.drag.opx+(e.clientX-MAP.drag.sx)*sc();MAP.py=MAP.drag.opy+(e.clientY-MAP.drag.sy)*sc()}
-  else MAP.offsets[MAP.drag.id]={x:MAP.drag.ox.x+(e.clientX
-  g.fillStyle='#9fd8ff';lines.forEach(function(l,i){g.fillText(l,x,y+i*12)})}
- hud(10,18,['RAW · TR '+((inv.rnd||{}).trend||0)+' · DA '+((inv.rnd||{}).data||0),'IP '+((inv.ebook||{}).ip||0)+' · PW '+((inv.influencer||{}).persona||0)]);
- hud(c.width-120,18,['DM '+((inv.social||{}).demand||0),'MKT IP '+((inv.market||{}).ip||0)+' · D '+((inv.market||{}).demand||0)]);
- hud(10,c.height-30,['FLEET '+OC.state.flights.length+'/'+OC.state.ships,'CR '+usd(OC.state.credits)]);
- hud(c.width-120,c.height-30,['AGENTS '+OC.state.agents.length,'ZOOM ×'+z.toFixed(2)]);
-}
-/* ═══ MODULE 3 · UI EXTENSION — keyboard focus lock · committee drawer · owner approval ═══ */
-var focusLock=null;
-document.addEventListener('touchstart',function(e){
- var t=e.target&&e.target.closest?e.target.closest('input,textarea'):null;
- if(t){e.preventDefault();focusLock=t;t.focus()}},{passive:false});
-document.addEventListener('mousedown',function(e){
- var t=e.target&&e.target.closest?e.target.closest('input,textarea'):null;
- if(t&&document.activeElement!==t){e.preventDefault();focusLock=t;t.focus()}},true);
-document.addEventListener('focusin',function(e){
- if(e.target&&e.target.matches&&e.target.matches('input,textarea'))focusLock=e.target});
-function restoreFocus(prevId){if(prevId){var el=document.getElementById(prevId);
- if(el&&el.matches&&el.matches('input,textarea')){el.focus();focusLock=el}}}
-/* override tab bar + renderer: adds COMMITTEE + APPROVE tabs · restores keyboard focus after re-renders */
-function tabBtns(){return ['roster','chat','vault','finance','feed','ops','map','committee','approve'].map(function(t){
- return '<button style="margin:2px;padding:6px 10px;font-size:10px'+(X.tab===t?';border-color:var(--cyan);color:var(--cyan)':'')+'" data-tab="'+t+'">'+t.toUpperCase()+'</button>'}).join('')}
-function renderSuite(){
- var b=$('suiteBody');if(!b)return;
- var prevId=document.activeElement&&document.activeElement.id||null;
- var h='<div style="margin-bottom:8px">'+tabBtns()+'</div>';
- if(X.tab==='roster')h+=rosterHTML();
- else if(X.tab==='chat')h+=chatHTML();
- else if(X.tab==='vault')h+=vaultHTML();
- else if(X.tab==='finance')h+=financeHTML();
- else if(X.tab==='feed')h+=feedHTML();
- else if(X.tab==='ops')h+=opsHTML();
- else if(X.tab==='map')h+=mapHTML();
- else if(X.tab==='committee')h+=committeeHTML();
- else if(X.tab==='approve')h+=approveHTML();
- b.innerHTML=h;
- if(X.tab==='roster')bindRoster();
- if(X.tab==='chat')bindChat();
- if(X.tab==='vault')bindVault();
- if(X.tab==='finance')bindFinance();
- if(X.tab==='feed')bindFeed();
- if(X.tab==='ops')bindOps();
- if(X.tab==='map')bindMap();
- if(X.tab==='committee')bindCommittee();
- if(X.tab==='approve')bindApprove();
- if(X.tab==='chat'){Object.keys(X.chats).forEach(paintChat)}
- restoreFocus(prevId)}
-/* [COMMITTEE DRAWER — telemetry · 5 roles · Billboard Top 100 · schedule · thought stream] */
-var CTEES=[{name:'MARKET ANALYST',em:'📊',role:'Demand gaps · viral trends'},{name:'DEVELOPER',em:'🛠',role:'Builds deliverables'},{name:'COPYWRITER',em:'✍',role:'Sales copy · tier pricing'},{name:'IP SKEPTIC',em:'⚖',role:'Quality & copyright review'},{name:'MUSIC DIRECTOR',em:'🎵',role:'Billboard Top 100 specialist'}];
-var telemetry=LS('OC8_TELEMETRY',{items:[],billboard:[]});
-var schedule=LS('OC8_SCHEDULE',[]);
-X.queue=LS('OC7_QUEUE',[]);
-function committeeHTML(){
- var n=(telemetry.items||[]).length,tags={};
- (telemetry.items||[]).forEach(function(i){(i.tags||[]).forEach(function(x){tags[x]=(tags[x]||0)+1})});
- var top=Object.keys(tags).sort(function(a,b){return tags[b]-tags[a]}).slice(0,5);
- return '<div class="sect">AGENT COMMITTEE — telemetry-driven</div>'+
-  '<div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
-  '<input id="telFile" type="file" accept=".json" style="max-width:180px">'+
-  '<button id="telPaste" style="padding:6px 9px;font-size:10px">📋 PASTE TELEMETRY JSON</button>'+
-  '<span class="meta">'+n+' items · '+Object.keys(tags).length+' tags</span></div>'+
-  '<div class="meta">Top signals: '+(top.map(function(x){return esc(x)+'×'+tags[x]}).join(' · ')||'—')+'</div></div>'+
-  CTEES.map(function(c){
-   var stat=n+' items scanned';
-   if(c.name==='DEVELOPER')stat=(X.products||[]).filter(function(p){return p.status!=='sold'}).length+' assets in flight';
-   if(c.name==='COPYWRITER')stat='tier pricing · autoCap '+usd(X.cfg.autoCap);
-   if(c.name==='IP SKEPTIC')stat=X.queue.filter(function(q){return q.status==='pending'}).length+' assets awaiting review';
-   if(c.name==='MUSIC DIRECTOR')stat=(telemetry.billboard||[]).length+' chart entries indexed';
-   return '<div class="card"><div class="row1"><span class="name">'+c.em+' '+c.name+'</span><span style="font-size:10px;color:var(--cyan)">ACTIVE</span></div><div class="meta">'+c.role+' · '+stat+'</div></div>'}).join('')+
-  '<div class="sect">BILLBOARD TOP 100 TELEMETRY</div>'+
-  ((telemetry.billboard||[]).length?telemetry.billboard.slice(0,8).map(function(b2){
-   return '<div class="card"><div class="row1"><span style="font-size:11px">#'+b2.rank+' '+esc(b2.title||'')+'</span><span style="font-size:10px;color:var(--dim)">'+esc(b2.artist||'')+'</span></div><div class="meta">'+esc(b2.genre||'')+' · '+esc(b2.trend||'')+'</div></div>'}).join(''):'<div class="empty">No chart telemetry — supply billboard[] in telemetry JSON</div>')+
-  '<div class="sect">SOCIAL POSTING SCHEDULE — release only after owner approval</div>'+
-  (schedule.length?schedule.slice(0,10).map(function(s2){
-   return '<div class="card"><div class="row1"><span style="font-size:11px">'+esc(s2.title||s2.id)+'</span><span style="font-size:10px;color:var(--amber)">'+s2.status.toUpperCase()+'</span></div><div class="meta">'+esc(s2.platform||'')+' · '+esc(s2.when||'')+'</div></div>'}).join(''):'<div class="empty">No scheduled posts</div>')+
-  '<div class="sect">THOUGHT STREAM</div>'+X.acts.slice(0,12).map(function(e){
-   return '<div class="ev t-'+e.type+'"><span class="ts">'+e.t+'</span>'+ebr(e.text)+'</div>'}).join('')}
-function bindCommittee(){
- $('telFile').onchange=function(e){var f=e.target.files[0];if(!f)return;
-  var rd=new FileReader();rd.onload=function(){ingestTelemetry(rd.result)};rd.readAsText(f)};
- $('telPaste').onclick=function(){var t=prompt('Paste telemetry JSON (data/extracted_data.json):');if(t)ingestTelemetry(t)}}
-function ingestTelemetry(txt){
- try{
-  var d=JSON.parse(txt);
-  if(d.items)telemetry.items=d.items;
-  if(d.billboard)telemetry.billboard=d.billboard;
-  SS('OC8_TELEMETRY',telemetry);
-  audit('COMMITTEE','TELEMETRY_INGEST','pass',((d.items||[]).length)+' items · '+((d.billboard||[]).length)+' chart entries');
-  log('sys','📊 Telemetry ingested — committee analyzing');notifyBadge();renderSuite();
- }catch(e){alert('E_VALIDATION: invalid JSON — '+e.message)}}
-/* [PENDING_OWNER_APPROVAL — Stage 1 pending · Stage 2 forbidden · Stage 3 owner release] */
-function approveHTML(){
- var pend=X.queue.filter(function(q){return q.status==='pending'});
- var done=X.queue.filter(function(q){return q.status!=='pending'});
- return '<div class="sect">PENDING_OWNER_APPROVAL — '+pend.length+' locked</div>'+
-  '<div class="card"><div class="meta">Agents are STRICTLY FORBIDDEN from publishing, listing, uploading, or accepting funds autonomously. Release requires your explicit command.</div>'+
-  '<div style="display:flex;gap:6px;margin-top:8px"><input id="cmdRelease" placeholder="APPROVE_RELEASE <ITEM_ID>  or  REJECT <ITEM_ID>" style="flex:1"><button class="primary" id="cmdGo">EXECUTE</button></div>'+
-  '<button id="qSync" style="width:100%;margin-top:6px">⬇ SYNC QUEUE FROM GITHUB (committee/queue.json)</button>'+
-  '<button id="qIngest" style="width:100%;margin-top:6px">📋 PASTE QUEUE JSON</button></div>'+
-  (pend.length?pend.map(qCard).join(''):'<div class="empty">Nothing pending — agents are holding</div>')+
-  '<div class="sect">RELEASED / REJECTED</div>'+(done.length?done.slice(0,10).map(qCard).join(''):'<div class="empty">No history</div>')}
-function qCard(q){
- var col={pending:'var(--amber)',released:'var(--green)',rejected:'var(--red)'}[q.status]||'var(--dim)';
- return '<div class="card"><div class="row1"><span class="name">'+esc(q.em||'📦')+' '+esc(q.title||q.id)+'</span><span style="font-size:10px;color:'+col+'">'+q.status.toUpperCase()+'</span></div>'+
-  '<div class="meta">'+esc(q.kind||'product')+' · by '+esc(q.agentId||'committee')+' · '+usd(q.price||0)+(q.platform?' · '+esc(q.platform):'')+(q.royaltyFree?' · ♾ royalty-free':'')+'</div>'+
-  (q.body?'<div class="meta">'+esc(String(q.body).slice(0,160))+'…</div>':'')+
-  (q.status==='pending'?'<div style="display:flex;gap:6px;margin-top:6px"><button class="primary" style="flex:1" data-rel="'+q.id+'">✅ APPROVE & RELEASE</button><button class="warn" style="flex:1" data-rej="'+q.id+'">✖ REJECT</button></div>':'')+
-  (q.status==='released'?'<div class="meta" style="margin-top:4px">🔗 approval written to repo — fulfillment bridge packages & dispatches</div>':'')}
-function bindApprove(){
- $('cmdGo').onclick=function(){var v=$('cmdRelease').value.trim();if(v)ownerCommand(v)};
- $('qSync').onclick=syncQueue;
- $('qIngest').onclick=function(){var t=prompt('Paste queue JSON (committee/queue.json):');if(t)ingestQueue(t)};
- $('suiteBody').querySelectorAll('[data-rel]').forEach(function(b){b.onclick=function(){releaseItem(b.dataset.rel)}});
- $('suiteBody').querySelectorAll('[data-rej]').forEach(function(b){b.onclick=function(){rejectItem(b.dataset.rej)}})}
-function ownerCommand(cmd){
- var m=cmd.match(/^APPROVE_RELEASE\s+(\S+)/i),r=cmd.match(/^REJECT\s+(\S+)/i);
- if(m)return releaseItem(m[1]);
- if(r)return rejectItem(r[1]);
- alert('Unknown command — use APPROVE_RELEASE <ITEM_ID> or REJECT <ITEM_ID>')}
-function releaseItem(id){
- var q=X.queue.filter(function(x){return x.id===id})[0];if(!q)return alert('Item not found: '+id);
- q.status='released';q.releasedAt=Date.now();save('queue');
- audit('GATEKEEPER','APPROVE_RELEASE','pass',id+' released by owner');
- OC.feed('sale','✅ RELEASED: '+q.title+' — payment links & fulfillment now live');
- ghPut('fulfillment/approvals/'+id+'.json',JSON.stringify(q,null,2)).then(function(){log('sys','☁️ Approval written to repo')}).catch(function(e){log('flag','⚠ GitHub: '+e.message)});
- notifyBadge();renderSuite()}
-function rejectItem(id){
- var q=X.queue.filter(function(x){return x.id===id})[0];if(!q)return alert('Item not found: '+id);
- q.status='rejected';save('queue');
- audit('GATEKEEPER','REJECT','pass',id+' rejected');
- OC.feed('sys','✖ REJECTED: '+q.title);notifyBadge();renderSuite()}
-function ingestQueue(txt){
- try{
-  var d=JSON.parse(txt),arr=Array.isArray(d)?d:(d.items||[]),n=0;
-  arr.forEach(function(q){if(q&&q.id&&!X.queue.some(function(x){return x.id===q.id})){
-   if(!q.status)q.status='pending';X.queue.push(q);n++}});
-  save('queue');audit('GATEKEEPER','QUEUE_INGEST','pass',n+' items');notifyBadge();renderSuite();
- }catch(e){alert('E_VALIDATION: '+e.message)}}
-/* [GITHUB BRIDGE — keyring credential 'github': login username=owner/repo, secret=PAT] */
-async function ghPut(path,content){
- if(!X.vault.open)throw new Error('E_VAULT_LOCKED');
- var c=X.vault.data.creds.filter(function(x){return x.platform==='github'&&x.status==='active'})[0];
- if(!c||!c.logins[0])throw new Error('E_NO_GITHUB_CRED — add github credential in VAULT');
- var url='https://api.github.com/repos/'+c.logins[0].username+'/contents/'+path,sha=null;
- try{var r0=await fetch(url,{headers:{Authorization:'Bearer '+c.logins[0].secret,Accept:'application/vnd.github+json'}});if(r0.ok)sha=(await r0.json()).sha}catch(e){}
- var r=await fetch(url,{method:'PUT',headers:{Authorization:'Bearer '+c.logins[0].secret,Accept:'application/vnd.github+json','Content-Type':'application/json'},
-  body:JSON.stringify({message:'OC6 '+path,content:btoa(unescape(encodeURIComponent(content))),sha:sha})});
- if(!r.ok)throw new Error('E_GITHUB_'+r.status);return true}
-async function ghGetDir(dir){
- if(!X.vault.open)throw new Error('E_VAULT_LOCKED');
- var c=X.vault.data.creds.filter(function(x){return x.platform==='github'&&x.status==='active'})[0];
- if(!c||!c.logins[0])throw new Error('E_NO_GITHUB_CRED');
- var r=await fetch('https://api.github.com/repos/'+c.logins[0].username+'/contents/'+dir,{headers:{Authorization:'Bearer '+c.logins[0].secret,Accept:'application/vnd.github+json'}});
- if(!r.ok)throw new Error('E_GITHUB_'+r.status);return await r.json()}
-function syncQueue(){
- ghGetDir('committee').then(function(files){
-  var f=files.filter(function(x){return x.name==='queue.json'})[0];
-  if(!f){alert('No committee/queue.json yet — run committee_engine.py first');return}
-  return fetch(f.download_url).then(function(r){return r.text()}).then(ingestQueue);
- }).catch(function(e){alert(e.message)})}
-function notifyBadge(){
- var n=X.queue.filter(function(q){return q.status==='pending'}).length,btn=null;
- document.querySelectorAll('nav button').forEach(function(b){if(b.textContent.indexOf('SUITE')>-1)btn=b});
- if(btn)btn.innerHTML='<span class="ic">🧬</span>SUITE'+(n?' 🔴'+n:'')}
-/* [BOOT — V6] */
-ensureAgents();
-notifyBadge();
-setInterval(function(){
- if(!$('v-suite')||!$('v-suite').classList.contains('on'))return;
- if(X.tab==='roster')paintUptime();
- if(X.tab==='feed'&&!X.feedPause)paintFeed();
-},2000);
-log('sys','🏛 V6 MASTER online — committee · owner approval gate · keyboard focus lock · stealth pipeline armed');
-window.OC7={X:X,transferTask:transferTask,grantTool:grantTool,addCred:addCred,addLogin:addLogin,sellProduct:sellProduct,tools:TOOLS2,map:MAP,
- queue:X.queue,releaseItem:releaseItem,rejectItem:rejectItem,ownerCommand:ownerCommand,
- ingestTelemetry:ingestTelemetry,ingestQueue:ingestQueue,notifyBadge:notifyBadge};
-  g.fillStyle='#9fd8ff';lines.forEach(function(l,i){g.fillText(l,x,y+i*12)})}
- hud(10,18,['RAW · TR '+((inv.rnd||{}).trend||0)+' · DA '+((inv.rnd||{}).data||0),'IP '+((inv.ebook||{}).ip||0)+' · PW '+((inv.influencer||{}).persona||0)]);
- hud(c.width-120,18,['DM '+((inv.social||{}).demand||0),'MKT IP '+((inv.market||{}).ip||0)+' · D '+((inv.market||{}).demand||0)]);
- hud(10,c.height-30,['FLEET '+OC.state.flights.length+'/'+OC.state.ships,'CR '+usd(OC.state.credits)]);
- hud(c.width-120,c.height-30,['AGENTS '+OC.state.agents.length,'ZOOM ×'+z.toFixed(2)]);
-}
-/* ═══ MODULE 3 · UI EXTENSION — keyboard focus lock · committee drawer · owner approval ═══ */
-var focusLock=null;
-document.addEventListener('touchstart',function(e){
- var t=e.target&&e.target.closest?e.target.closest('input,textarea'):null;
- if(t){e.preventDefault();focusLock=t;t.focus()}},{passive:false});
-document.addEventListener('mousedown',function(e){
- var t=e.target&&e.target.closest?e.target.closest('input,textarea'):null;
- if(t&&document.activeElement!==t){e.preventDefault();focusLock=t;t.focus()}},true);
-document.addEventListener('focusin',function(e){
- if(e.target&&e.target.matches&&e.target.matches('input,textarea'))focusLock=e.target});
-function restoreFocus(prevId){if(prevId){var el=document.getElementById(prevId);
- if(el&&el.matches&&el.matches('input,textarea')){el.focus();focusLock=el}}}
-/* override tab bar + renderer: adds COMMITTEE + APPROVE tabs · restores keyboard focus after re-renders */
-function tabBtns(){return ['roster','chat','vault','finance','feed','ops','map','committee','approve'].map(function(t){
- return '<button style="margin:2px;padding:6px 10px;font-size:10px'+(X.tab===t?';border-color:var(--cyan);color:var(--cyan)':'')+'" data-tab="'+t+'">'+t.toUpperCase()+'</button>'}).join('')}
-function renderSuite(){
- var b=$('suiteBody');if(!b)return;
- var prevId=document.activeElement&&document.activeElement.id||null;
- var h='<div style="margin-bottom:8px">'+tabBtns()+'</div>';
- if(X.tab==='roster')h+=rosterHTML();
- else if(X.tab==='chat')h+=chatHTML();
- else if(X.tab==='vault')h+=vaultHTML();
- else if(X.tab==='finance')h+=financeHTML();
- else if(X.tab==='feed')h+=feedHTML();
- else if(X.tab==='ops')h+=opsHTML();
- else if(X.tab==='map')h+=mapHTML();
- else if(X.tab==='committee')h+=committeeHTML();
- else if(X.tab==='approve')h+=approveHTML();
- b.innerHTML=h;
- if(X.tab==='roster')bindRoster();
- if(X.tab==='chat')bindChat();
- if(X.tab==='vault')bindVault();
- if(X.tab==='finance')bindFinance();
- if(X.tab==='feed')bindFeed();
- if(X.tab==='ops')bindOps();
- if(X.tab==='map')bindMap();
- if(X.tab==='committee')bindCommittee();
- if(X.tab==='approve')bindApprove();
- if(X.tab==='chat'){Object.keys(X.chats).forEach(paintChat)}
- restoreFocus(prevId)}
-/* [COMMITTEE DRAWER — telemetry · 5 roles · Billboard Top 100 · schedule · thought stream] */
-var CTEES=[{name:'MARKET ANALYST',em:'📊',role:'Demand gaps · viral trends'},{name:'DEVELOPER',em:'🛠',role:'Builds deliverables'},{name:'COPYWRITER',em:'✍',role:'Sales copy · tier pricing'},{name:'IP SKEPTIC',em:'⚖',role:'Quality & copyright review'},{name:'MUSIC DIRECTOR',em:'🎵',role:'Billboard Top 100 specialist'}];
-var telemetry=LS('OC8_TELEMETRY',{items:[],billboard:[]});
-var schedule=LS('OC8_SCHEDULE',[]);
-X.queue=LS('OC7_QUEUE',[]);
-function committeeHTML(){
- var n=(telemetry.items||[]).length,tags={};
- (telemetry.items||[]).forEach(function(i){(i.tags||[]).forEach(function(x){tags[x]=(tags[x]||0)+1})});
- var top=Object.keys(tags).sort(function(a,b){return tags[b]-tags[a]}).slice(0,5);
- return '<div class="sect">AGENT COMMITTEE — telemetry-driven</div>'+
-  '<div class="card"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
-  '<input id="telFile" type="file" accept=".json" style="max-width:180px">'+
-  '<button id="telPaste" style="padding:6px 9px;font-size:10px">📋 PASTE TELEMETRY JSON</button>'+
-  '<span class="meta">'+n+' items · '+Object.keys(tags).length+' tags</span></div>'+
-  '<div class="meta">Top signals: '+(top.map(function(x){return esc(x)+'×'+tags[x]}).join(' · ')||'—')+'</div></div>'+
-  CTEES.map(function(c){
-   var stat=n+' items scanned';
-   if(c.name==='DEVELOPER')stat=(X.products||[]).filter(function(p){return p.status!=='sold'}).length+' assets in flight';
-   if(c.name==='COPYWRITER')stat='tier pricing · autoCap '+usd(X.cfg.autoCap);
-   if(c.name==='IP SKEPTIC')stat=X.queue.filter(function(q){return q.status==='pending'}).length+' assets awaiting review';
-   if(c.name==='MUSIC DIRECTOR')stat=(telemetry.billboard||[]).length+' chart entries indexed';
-   return '<div class="card"><div class="row1"><span class="name">'+c.em+' '+c.name+'</span><span style="font-size:10px;color:var(--cyan)">ACTIVE</span></div><div class="meta">'+c.role+' · '+stat+'</div></div>'}).join('')+
-  '<div class="sect">BILLBOARD TOP 100 TELEMETRY</div>'+
-  ((telemetry.billboard||[]).length?telemetry.billboard.slice(0,8).map(function(b2){
-   return '<div class="card"><div class="row1"><span style="font-size:11px">#'+b2.rank+' '+esc(b2.title||'')+'</span><span style="font-size:10px;color:var(--dim)">'+esc(b2.artist||'')+'</span></div><div class="meta">'+esc(b2.genre||'')+' · '+esc(b2.trend||'')+'</div></div>'}).join(''):'<div class="empty">No chart telemetry — supply billboard[] in telemetry JSON</div>')+
-  '<div class="sect">SOCIAL POSTING SCHEDULE — release only after owner approval</div>'+
-  (schedule.length?schedule.slice(0,10).map(function(s2){
-   return '<div class="card"><div class="row1"><span style="font-size:11px">'+esc(s2.title||s2.id)+'</span><span style="font-size:10px;color:var(--amber)">'+s2.status.toUpperCase()+'</span></div><div class="meta">'+esc(s2.platform||'')+' · '+esc(s2.when||'')+'</div></div>'}).join(''):'<div class="empty">No scheduled posts</div>')+
-  '<div class="sect">THOUGHT STREAM</div>'+X.acts.slice(0,12).map(function(e){
-   return '<div class="ev t-'+e.type+'"><span class="ts">'+e.t+'</span>'+ebr(e.text)+'</div>'}).join('')}
-function bindCommittee(){
- $('telFile').onchange=function(e){var f=e.target.files[0];if(!f)return;
-  var rd=new FileReader();rd.onload=function(){ingestTelemetry(rd.result)};rd.readAsText(f)};
- $('telPaste').onclick=function(){var t=prompt('Paste telemetry JSON (data/extracted_data.json):');if(t)ingestTelemetry(t)}}
-function ingestTelemetry(txt){
- try{
-  var d=JSON.parse(txt);
-  if(d.items)telemetry.items=d.items;
-  if(d.billboard)telemetry.billboard=d.billboard;
-  SS('OC8_TELEMETRY',telemetry);
-  audit('COMMITTEE','TELEMETRY_INGEST','pass',((d.items||[]).length)+' items · '+((d.billboard||[]).length)+' chart entries');
-  log('sys','📊 Telemetry ingested — committee analyzing');notifyBadge();renderSuite();
- }catch(e){alert('E_VALIDATION: invalid JSON — '+e.message)}}
-/* [PENDING_OWNER_APPROVAL — Stage 1 pending · Stage 2 forbidden · Stage 3 owner release] */
-function approveHTML(){
- var pend=X.queue.filter(function(q){return q.status==='pending'});
- var done=X.queue.filter(function(q){return q.status!=='pending'});
- return '<div class="sect">PENDING_OWNER_APPROVAL — '+pend.length+' locked</div>'+
-  '<div class="card"><div class="meta">Agents are STRICTLY FORBIDDEN from publishing, listing, uploading, or accepting funds autonomously. Release requires your explicit command.</div>'+
-  '<div style="display:flex;gap:6px;margin-top:8px"><input id="cmdRelease" placeholder="APPROVE_RELEASE <ITEM_ID>  or  REJECT <ITEM_ID>" style="flex:1"><button class="primary" id="cmdGo">EXECUTE</button></div>'+
-  '<button id="qSync" style="width:100%;margin-top:6px">⬇ SYNC QUEUE FROM GITHUB (committee/queue.json)</button>'+
-  '<button id="qIngest" style="width:100%;margin-top:6px">📋 PASTE QUEUE JSON</button></div>'+
-  (pend.length?pend.map(qCard).join(''):'<div class="empty">Nothing pending — agents are holding</div>')+
-  '<div class="sect">RELEASED / REJECTED</div>'+(done.length?done.slice(0,10).map(qCard).join(''):'<div class="empty">No history</div>')}
-function qCard(q){
- var col={pending:'var(--amber)',released:'var(--green)',rejected:'var(--red)'}[q.status]||'var(--dim)';
- return '<div class="card"><div class="row1"><span class="name">'+esc(q.em||'📦')+' '+esc(q.title||q.id)+'</span><span style="font-size:10px;color:'+col+'">'+q.status.toUpperCase()+'</span></div>'+
-  '<div class="meta">'+esc(q.kind||'product')+' · by '+esc(q.agentId||'committee')+' · '+usd(q.price||0)+(q.platform?' · '+esc(q.platform):'')+(q.royaltyFree?' · ♾ royalty-free':'')+'</div>'+
-  (q.body?'<div class="meta">'+esc(String(q.body).slice(0,160))+'…</div>':'')+
-  (q.status==='pending'?'<div style="display:flex;gap:6px;margin-top:6px"><button class="primary" style="flex:1" data-rel="'+q.id+'">✅ APPROVE & RELEASE</button><button class="warn" style="flex:1" data-rej="'+q.id+'">✖ REJECT</button></div>':'')+
-  (q.status==='released'?'<div class="meta" style="margin-top:4px">🔗 approval written to repo — fulfillment bridge packages & dispatches</div>':'')}
-function bindApprove(){
- $('cmdGo').onclick=function(){var v=$('cmdRelease').value.trim();if(v)ownerCommand(v)};
- $('qSync').onclick=syncQueue;
- $('qIngest').onclick=function(){var t=prompt('Paste queue JSON (committee/queue.json):');if(t)ingestQueue(t)};
- $('suiteBody').querySelectorAll('[data-rel]').forEach(function(b){b.onclick=function(){releaseItem(b.dataset.rel)}});
- $('suiteBody').querySelectorAll('[data-rej]').forEach(function(b){b.onclick=function(){rejectItem(b.dataset.rej)}})}
-function ownerCommand(cmd){
- var m=cmd.match(/^APPROVE_RELEASE\s+(\S+)/i),r=cmd.match(/^REJECT\s+(\S+)/i);
- if(m)return releaseItem(m[1]);
- if(r)return rejectItem(r[1]);
- alert('Unknown command — use APPROVE_RELEASE <ITEM_ID> or REJECT <ITEM_ID>')}
-function releaseItem(id){
- var q=X.queue.filter(function(x){return x.id===id})[0];if(!q)return alert('Item not found: '+id);
- q.status='released';q.releasedAt=Date.now();save('queue');
- audit('GATEKEEPER','APPROVE_RELEASE','pass',id+' released by owner');
- OC.feed('sale','✅ RELEASED: '+q.title+' — payment links & fulfillment now live');
- ghPut('fulfillment/approvals/'+id+'.json',JSON.stringify(q,null,2)).then(function(){log('sys','☁️ Approval written to repo')}).catch(function(e){log('flag','⚠ GitHub: '+e.message)});
- notifyBadge();renderSuite()}
-function rejectItem(id){
- var q=X.queue.filter(function(x){return x.id===id})[0];if(!q)return alert('Item not found: '+id);
- q.status='rejected';save('queue');
- audit('GATEKEEPER','REJECT','pass',id+' rejected');
- OC.feed('sys','✖ REJECTED: '+q.title);notifyBadge();renderSuite()}
-function ingestQueue(txt){
- try{
-  var d=JSON.parse(txt),arr=Array.isArray(d)?d:(d.items||[]),n=0;
-  arr.forEach(function(q){if(q&&q.id&&!X.queue.some(function(x){return x.id===q.id})){
-   if(!q.status)q.status='pending';X.queue.push(q);n++}});
-  save('queue');audit('GATEKEEPER','QUEUE_INGEST','pass',n+' items');notifyBadge();renderSuite();
- }catch(e){alert('E_VALIDATION: '+e.message)}}
-/* [GITHUB BRIDGE — keyring credential 'github': login username=owner/repo, secret=PAT] */
-async function ghPut(path,content){
- if(!X.vault.open)throw new Error('E_VAULT_LOCKED');
- var c=X.vault.data.creds.filter(function(x){return x.platform==='github'&&x.status==='active'})[0];
- if(!c||!c.logins[0])throw new Error('E_NO_GITHUB_CRED — add github credential in VAULT');
- var url='https://api.github.com/repos/'+c.logins[0].username+'/contents/'+path,sha=null;
- try{var r0=await fetch(url,{headers:{Authorization:'Bearer '+c.logins[0].secret,Accept:'application/vnd.github+json'}});if(r0.ok)sha=(await r0.json()).sha}catch(e){}
- var r=await fetch(url,{method:'PUT',headers:{Authorization:'Bearer '+c.logins[0].secret,Accept:'application/vnd.github+json','Content-Type':'application/json'},
-  body:JSON.stringify({message:'OC6 '+path,content:btoa(unescape(encodeURIComponent(content))),sha:sha})});
- if(!r.ok)throw new Error('E_GITHUB_'+r.status);return true}
-async function ghGetDir(dir){
- if(!X.vault.open)throw new Error('E_VAULT_LOCKED');
- var c=X.vault.data.creds.filter(function(x){return x.platform==='github'&&x.status==='active'})[0];
- if(!c||!c.logins[0])throw new Error('E_NO_GITHUB_CRED');
- var r=await fetch('https://api.github.com/repos/'+c.logins[0].username+'/contents/'+dir,{headers:{Authorization:'Bearer '+c.logins[0].secret,Accept:'application/vnd.github+json'}});
- if(!r.ok)throw new Error('E_GITHUB_'+r.status);return await r.json()}
-function syncQueue(){
- ghGetDir('committee').then(function(files){
-  var f=files.filter(function(x){return x.name==='queue.json'})[0];
-  if(!f){alert('No committee/queue.json yet — run committee_engine.py first');return}
-  return fetch(f.download_url).then(function(r){return r.text()}).then(ingestQueue);
- }).catch(function(e){alert(e.message)})}
-function notifyBadge(){
- var n=X.queue.filter(function(q){return q.status==='pending'}).length,btn=null;
- document.querySelectorAll('nav button').forEach(function(b){if(b.textContent.indexOf('SUITE')>-1)btn=b});
- if(btn)btn.innerHTML='<span class="ic">🧬</span>SUITE'+(n?' 🔴'+n:'')}
-/* [BOOT — V6] */
-ensureAgents();
-notifyBadge();
-setInterval(function(){
- if(!$('v-suite')||!$('v-suite').classList.contains('on'))return;
- if(X.tab==='roster')paintUptime();
- if(X.tab==='feed'&&!X.feedPause)paintFeed();
-},2000);
-log('sys','🏛 V6 MASTER online — committee · owner approval gate · keyboard focus lock · stealth pipeline armed');
-/* ═══ V6 MAP-ENGINE COMPLETION + ARCHIVE TAB (overrides earlier defs) ═══ */
-function tabBtns(){return ['roster','chat','vault','finance','feed','ops','map','committee','approve','archive'].map(function(t){
- return '<button style="margin:2px;padding:6px 10px;font-size:10px'+(X.tab===t?';border-color:var(--cyan);color:var(--cyan)':'')+'" data-tab="'+t+'">'+t.toUpperCase()+'</button>'}).join('')}
-function renderSuite(){
- var b=$('suiteBody');if(!b)return;
- var prevId=document.activeElement&&document.activeElement.id||null;
- var h='<div style="margin-bottom:8px">'+tabBtns()+'</div>';
- if(X.tab==='roster')h+=rosterHTML();
- else if(X.tab==='chat')h+=chatHTML();
- else if(X.tab==='vault')h+=vaultHTML();
- else if(X.tab==='finance')h+=financeHTML();
- else if(X.tab==='feed')h+=feedHTML();
- else if(X.tab==='ops')h+=opsHTML();
- else if(X.tab==='map')h+=mapHTML();
- else if(X.tab==='committee')h+=committeeHTML();
- else if(X.tab==='approve')h+=approveHTML();
- else if(X.tab==='archive'&&window.OCP)h+=window.OCP.render();
- b.innerHTML=h;
- if(X.tab==='roster')bindRoster();
- if(X.tab==='chat')bindChat();
- if(X.tab==='vault')bindVault();
- if(X.tab==='finance')bindFinance();
- if(X.tab==='feed')bindFeed();
- if(X.tab==='ops')bindOps();
- if(X.tab==='map')bindMap();
- if(X.tab==='committee')bindCommittee();
- if(X.tab==='approve')bindApprove();
- if(X.tab==='archive'&&window.OCP)window.OCP.bind();
- if(X.tab==='chat'){Object.keys(X.chats).forEach(paintChat)}
- if(typeof restoreFocus==='function')restoreFocus(prevId)}
 function bindMap(){
  $('suiteBody').querySelectorAll('[data-sys]').forEach(function(b){b.onclick=function(){MAP.collapsed[b.dataset.sys]=!MAP.collapsed[b.dataset.sys];renderSuite()}});
  $('mzIn').onclick=function(){MAP.zoom=Math.min(3,MAP.zoom*1.25)};
@@ -1609,7 +842,7 @@ function bindMap(){
 function mapHit(c,e){
  var r=c.getBoundingClientRect(),mx=(e.clientX-r.left)*(c.width/r.width),my=(e.clientY-r.top)*(c.height/r.height);
  var s0=Math.min(c.width,c.height)/520,cx=c.width/2,cy=c.height/2,best=null,bd=1e9;
- PLANETS.forEach(function(p){if(hiddenP(p))return;var w=wpos(p);
+ SHIM_PLANETS.forEach(function(p){if(hiddenP(p))return;var w=wpos(p);
   var px=cx+w.x*s0*MAP.zoom+MAP.px,py=cy+w.y*s0*MAP.zoom+MAP.py;
   var d=Math.hypot(mx-px,my-py);if(d<30*s0&&d<bd){bd=d;best=p}});
  return best}
@@ -1619,9 +852,9 @@ function drawMap7(c){
  var g=c.getContext('2d');g.clearRect(0,0,c.width,c.height);
  var cx=c.width/2,cy=c.height/2,s0=Math.min(c.width,c.height)/520,z=MAP.zoom,tw=Date.now()/1000;
  for(var i=0;i<40;i++){g.fillStyle='rgba(160,200,255,'+(0.1+0.15*Math.abs(Math.sin(tw+i)))+')';g.fillRect((i*173)%c.width,(i*97)%c.height,1.5,1.5)}
- PLANETS.forEach(function(p){p.angle+=p.speed*0.016});
- var inv=OC.economy.inventory(),cap=2+OC.state.ships;
- PLANETS.forEach(function(p){if(hiddenP(p))return;
+ SHIM_PLANETS.forEach(function(p){p.angle+=p.speed*0.016});
+ var inv=ECON.inventory(),cap=2+OC.state.ships;
+ SHIM_PLANETS.forEach(function(p){if(hiddenP(p))return;
   g.beginPath();g.ellipse(cx+MAP.px,cy+MAP.py,p.orbit*s0*z,p.orbit*s0*z*0.55,0,0,Math.PI*2);
   g.strokeStyle='rgba(27,42,74,.4)';g.stroke()});
  SYSTEMS.forEach(function(sys){if(!MAP.collapsed[sys.id])return;
@@ -1630,7 +863,8 @@ function drawMap7(c){
   var px=cx+bx*s0*z+MAP.px,py=cy+byy*s0*z+MAP.py;
   g.fillStyle='rgba(0,229,255,.15)';g.fillRect(px-45,py-12,90,24);g.strokeStyle='#00e5ff';g.strokeRect(px-45,py-12,90,24);
   g.fillStyle='#bfeeff';g.font='9px monospace';g.textAlign='center';g.fillText(sys.name+' ('+sys.ids.length+')',px,py+3)});
- PLANETS.forEach(function(p){if(hiddenP(p))return;
+ SHIM_PLANETS.forEach(function(p){
+  if(hiddenP(p))return;
   var w=wpos(p),px=cx+w.x*s0*z+MAP.px,py=cy+w.y*s0*z+MAP.py,r=(p.orbit?9:16)*s0*Math.sqrt(z);
   var g2=g.createRadialGradient(px,py,1,px,py,r*2);g2.addColorStop(0,p.color);g2.addColorStop(1,'rgba(0,0,0,0)');
   g.fillStyle=g2;g.beginPath();g.arc(px,py,r*2,0,7);g.fill();
@@ -1638,7 +872,7 @@ function drawMap7(c){
   var st=inv[p.id]||{},n=OC.state.agents.filter(function(a){return a.planet===p.id}).length;
   g.fillStyle='#e1f0ff';g.font='10px monospace';g.textAlign='center';g.fillText(p.name.toUpperCase(),px,py+r+12);
   g.fillStyle='#ffb020';g.font='8px monospace';
-  g.fillText(Object.keys(RES).map(function(k){return (st[k]||0)+'×'+RES[k].tag}).filter(function(t){return t[0]!=='0'}).join(' ')||'—',px,py+r+22);
+  g.fillText(Object.keys(SHIM_RES).map(function(k){return (st[k]||0)+'×'+SHIM_RES[k].tag}).filter(function(t){return t[0]!=='0'}).join(' ')||'—',px,py+r+22);
   if(n){g.fillStyle='#00e5ff';g.font='bold 10px monospace';g.fillText('['+n+(n>cap?' FULL':'')+']',px,py-r-6);
    if(n>cap){g.strokeStyle='#ffb020';g.beginPath();g.arc(px,py,r+4,0,7);g.stroke()}}
   if(p.consumes&&p.consumes.some(function(k){return !(st[k]>0)})){g.fillStyle='rgba(255,85,102,'+(0.5+0.5*Math.abs(Math.sin(tw*4)))+')';g.fillText('⚠ SHORT',px,py-r-16)}});
@@ -1659,244 +893,46 @@ function drawMap7(c){
   g.fillStyle='#9fd8ff';lines.forEach(function(l,i){g.fillText(l,x,y+i*12)})}
  hud(10,18,['RAW · TR '+((inv.rnd||{}).trend||0)+' · DA '+((inv.rnd||{}).data||0),'IP '+((inv.ebook||{}).ip||0)+' · PW '+((inv.influencer||{}).persona||0)]);
  hud(c.width-120,18,['DM '+((inv.social||{}).demand||0),'MKT IP '+((inv.market||{}).ip||0)+' · D '+((inv.market||{}).demand||0)]);
- hud(10,c.height-30,['FLEET '+OC.state.flights.length+'/'+OC.state.ships,'CR '+usd(OC.state.credits)]);
+ hud(10,c.height-30,['FLEET '+OC.state.flights.length+'/'+OC.state.ships,'CR '+fmt(OC.state.credits)]);
  hud(c.width-120,c.height-30,['AGENTS '+OC.state.agents.length,'ZOOM ×'+z.toFixed(2)]);
-} window.OC7={X:X,transferTask:transferTask,grantTool:grantTool,addCred:addCred,addLogin:addLogin,sellProduct:sellProduct,tools:TOOLS2,map:MAP,
- queue:X.queue,releaseItem:releaseItem,rejectItem:rejectItem,ownerCommand:ownerCommand,
- ingestTelemetry:ingestTelemetry,ingestQueue:ingestQueue,notifyBadge:notifyBadge};
-})();
-<!-- ═══ V6 · KNOWLEDGE ARCHIVE TAB (registry + ebook integrity + sync) ═══ -->
-<script>
-(function(){
-'use strict';
-var OC=window.OC;if(!OC)return;
-var REG_N=25;   /* registry mirrored from agents/knowledge_empathy_protocol.py */
-var ebooks=JSON.parse(localStorage.getItem('OC9_EBOOKS')||'[]');
-function save(){localStorage.setItem('OC9_EBOOKS',JSON.stringify(ebooks.slice(-40)))}
-function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
-function verify(eb){
- try{
-  var body=JSON.stringify(Object.keys(eb).filter(function(k){return k!=='system_telemetry'}).sort().reduce(function(o,k){o[k]=eb[k];return o},{}));
-  return (btoa(unescape(encodeURIComponent(body)))===eb.system_telemetry.data_integrity.hash)?'hash-compat':'hash-verify-manual';
- }catch(e){return 'invalid'}
 }
-window.OCP={
- render:function(){
-  return '<div class="sect">KNOWLEDGE REGISTRY — 25 foundational assets (5W+H indexed)</div>'+
-   '<div class="card"><div class="meta">Philosophy (10) · AI Morality (5) · Foundational texts (10). Full index lives in agents/knowledge_empathy_protocol.py; agents must cite KB-ids and pass the EMPATHY PROTOCOL before any transfer.</div>'+
-   '<input id="kbSearch" placeholder="Search registry (author/title/domain)…" style="margin-top:6px" oninput="window.OCP.paint()">'+
-   '<div id="kbList" style="margin-top:6px"></div></div>'+
-   '<div class="sect">AGENT EBOOKS — shared memory ('+ebooks.length+')</div>'+
-   '<button class="primary" id="ebSync" style="width:100%;margin-bottom:8px">⬇ SYNC EBOOKS FROM GITHUB (memory/ebooks/)</button>'+
-   '<button id="ebPaste" style="width:100%;margin-bottom:8px">📋 PASTE EBOOK JSON</button>'+
-   '<div id="ebList">'+(ebooks.length?ebooks.slice(-10).reverse().map(function(e){
-    return '<div class="card"><div class="row1"><span class="name">'+esc(e.ebook_meta.title)+'</span>'+
-    '<span style="font-size:10px;color:var(--cyan)">'+esc(e.system_telemetry.data_integrity.consensus_status)+'</span></div>'+
-    '<div class="meta">'+esc(e.ebook_meta.author_agent)+' · '+esc(e.ebook_meta.timestamp||'')+'</div>'+
-    '<div class="meta">🛡 '+esc(e.empathy_and_moral_attestation.ethical_boundary_check.slice(0,80))+'…</div></div>'}).join(''):'<div class="empty">No ebooks in local memory</div>')+'</div>';
- },
- paint:function(){
-  var q=($('#kbSearch')||{}).value||'',el=document.getElementById('kbList');
-  if(!el)return;
-  el.innerHTML=window.OCP._reg.filter(function(r){return !q||(r.author+' '+r.title+' '+r.domain).toLowerCase().indexOf(q.toLowerCase())>-1})
-   .map(function(r){return '<div class="meta">📘 <b>'+esc(r.id)+'</b> '+esc(r.author)+' — '+esc(r.title)+' <span style="color:var(--dim)">['+esc(r.domain)+'] WHY: '+esc(r.y)+'</span></div>'}).join('');
- },
- bind:function(){
-  var inp=document.getElementById('kbSearch');if(inp)inp.oninput=window.OCP.paint;window.OCP.paint();
-  var s=document.getElementById('ebSync');
-  if(s)s.onclick=async function(){
-   if(!OC7||!OC7.X.vault.open){alert('Unlock the VAULT with a github credential first');return}
-   var c=OC7.X.vault.data.creds.filter(function(x){return x.platform==='github'&&x.status==='active'})[0];
-   if(!c||!c.logins[0]){alert('No github credential');return}
-   try{
-    var r=await fetch('https://api.github.com/repos/'+c.logins[0].username+'/contents/memory/ebooks',{headers:{Authorization:'Bearer '+c.logins[0].secret,Accept:'application/vnd.github+json'}});
-    if(!r.ok)throw new Error('E_GITHUB_'+r.status);
-    var files=await r.json(),n=0;
-    for(var i=0;i<files.length&&i<10;i++){
-     var t=await (await fetch(files[i].download_url)).text();
-     try{var eb=JSON.parse(t);
-      if(!ebooks.some(function(x){return x.ebook_meta.ebook_id===eb.ebook_meta.ebook_id})){ebooks.push(eb);n++}
-     }catch(e){}
-    }
-    save();OC.feed('sys','📚 '+n+' ebook(s) synced from shared memory');if(window.OC7&&OC7.X)OC7.notifyBadge();renderSuite();
-   }catch(e){alert(e.message)}
-  };
-  var p=document.getElementById('ebPaste');
-  if(p)p.onclick=function(){var t=prompt('Paste Agent Ebook JSON:');if(!t)return;
-   try{var eb=JSON.parse(t);
-    if(!eb.ebook_meta||!eb.system_telemetry)throw new Error('missing schema sections');
-    var st=verify(eb);
-    if(!ebooks.some(function(x){return x.ebook_meta.ebook_id===eb.ebook_meta.ebook_id}))ebooks.push(eb);
-    save();OC.feed('sys','📚 Ebook '+eb.ebook_meta.ebook_id+' ingested · integrity '+st+' · empathy: '+eb.empathy_and_moral_attestation.ethical_boundary_check.slice(0,50));
-    renderSuite();
-   }catch(e){alert('E_VALIDATION: '+e.message)}};
- }};
-window.OCP._reg=[
- {id:'KB-01',author:'Byung-Chul Han',title:'The Burnout Society',domain:'labor',y:'compulsion ≠ freedom'},
- {id:'KB-02',author:'C. Thi Nguyen',title:'Games: Agency As Art',domain:'agency',y:'protect desire from metrics'},
- {id:'KB-03',author:'Nick Bostrom',title:'Superintelligence',domain:'AI safety',y:'alignment before power'},
- {id:'KB-04',author:'Judith Butler',title:'Gender Trouble',domain:'identity',y:'agency beyond categories'},
- {id:'KB-05',author:'Ryan Holiday',title:'The Obstacle Is the Way',domain:'stoicism',y:'friction → action'},
- {id:'KB-06',author:'Slavoj Žižek',title:'Pandemic!',domain:'ideology',y:'see hidden assumptions'},
- {id:'KB-07',author:'Yuval Harari',title:'21 Lessons',domain:'macro-history',y:'prepare for displacement'},
- {id:'KB-08',author:'Luciano Floridi',title:'The 4th Revolution',domain:'info ethics',y:'ethics for the infosphere'},
- {id:'KB-09',author:'Alain de Botton',title:'Consolations of Philosophy',domain:'applied',y:'philosophy as therapy'},
- {id:'KB-10',author:'Shoshana Zuboff',title:'Surveillance Capitalism',domain:'platforms',y:'defend behavioral sovereignty'},
- {id:'KB-11',author:'Brian Christian',title:'The Alignment Problem',domain:'ML',y:'values into objectives'},
- {id:'KB-12',author:'Wallach & Allen',title:'Moral Machines',domain:'AMA',y:'explicit moral agents'},
- {id:'KB-13',author:'Stuart Russell',title:'Human Compatible',domain:'control',y:'provably beneficial AI'},
- {id:'KB-14',author:'Richard Yonck',title:'Heart of the Machine',domain:'affective',y:'empathy without deception'},
- {id:'KB-15',author:'David Edmonds',title:'AI Morality',domain:'policy',y:'moral architecture'},
- {id:'KB-16',author:'Ray Kurzweil',title:'Singularity Is Nearer',domain:'acceleration',y:'prepare for the curve'},
- {id:'KB-17',author:'Donella Meadows',title:'Thinking in Systems',domain:'systems',y:'leverage over blame'},
- {id:'KB-18',author:'Douglas Hofstadter',title:'Gödel, Escher, Bach',domain:'cognition',y:'meaning from strange loops'},
- {id:'KB-19',author:'Frank Herbert',title:'Dune',domain:'ecology',y:'beware resource empires'},
- {id:'KB-20',author:'Marcus Aurelius',title:'Meditations',domain:'stoicism',y:'govern the self first'},
- {id:'KB-21',author:'Sun Tzu',title:'The Art of War',domain:'strategy',y:'win without fighting'},
- {id:'KB-22',author:'Viktor Frankl',title:'Man’s Search for Meaning',domain:'purpose',y:'meaning sustains agency'},
- {id:'KB-23',author:'Neal Stephenson',title:'Snow Crash',domain:'virtual worlds',y:'culture propagates like code'},
- {id:'KB-24',author:'Isaac Asimov',title:'I, Robot',domain:'machine ethics',y:'rules need interpretation'},
- {id:'KB-25',author:'James Clear',title:'Atomic Habits',domain:'habits',y:'systems beat willpower'}];
-})();
-</script>
-Here is the complete JavaScript script to integrate the drag-and-drop tool system, including the Diagnostic Scanner, Resource Extractor, and Optimization Module. You can append this code to your main script or add it before the closing body tag in your index.js.```javascript
-(function () {
-'use strict';
-var TOOLS_CATALOG = [
-{
-id: 'tool_scanner',
-name: 'Diagnostic Scanner',
-icon: '🔍',
-effect: 'audit_boost',
-desc: 'Accelerates audit tasks and reduces burnout.'
-},
-{
-id: 'tool_extractor',
-name: 'Resource Extractor',
-icon: '⛏️',
-effect: 'resource_boost',
-desc: 'Increases efficiency when allocating fleet resources.'
-},
-{
-id: 'tool_optimizer',
-name: 'Optimization Module',
-icon: '⚡',
-effect: 'productivity_boost',
-desc: 'Provides a temporary boost to agent output speed.'
-}
-];
-if (window.OC && window.OC.state) {
-window.OC.state.toolAssignments = window.OC.state.toolAssignments || {};
-}
-function injectToolRackUI() {
-if (document.getElementById('toolRackContainer')) return;
-var container = document.createElement('div');
-container.id = 'toolRackContainer';
-container.style.cssText =
-'position: fixed; bottom: 70px; right: 15px; background: rgba(11, 17, 32, 0.95);' +
-'border: 1px solid #00f3ff; border-radius: 8px; padding: 10px; z-index: 9999;' +
-'box-shadow: 0 0 10px rgba(0, 243, 255, 0.3); color: #fff; font-family: monospace; width: 220px;';
-var header = document.createElement('div');
-header.style.cssText = 'font-weight: bold; font-size: 11px; margin-bottom: 8px; color: #00f3ff; letter-spacing: 1px;';
-header.innerText = '🛠️ EQUIPMENT RACK';
-container.appendChild(header);
-var rack = document.createElement('div');
-rack.style.cssText = 'display: flex; flex-direction: column; gap: 6px;';
-TOOLS_CATALOG.forEach(function (tool) {
-var card = document.createElement('div');
-card.className = 'draggable-tool-card';
-card.setAttribute('draggable', 'true');
-card.dataset.toolId = tool.id;
-card.style.cssText =
-'background: #101a30; border: 1px solid #1a2b4c; border-radius: 4px; padding: 6px;' +
-'cursor: grab; font-size: 11px; display: flex; align-items: center; gap: 8px; user-select: none;';
-card.innerHTML =
-'<span style="font-size: 14px;">' + tool.icon + '</span>' +
-'<div>' +
-'<div style="font-weight: bold; color: #e0e0e0;">' + tool.name + '</div>' +
-'<div style="font-size: 9px; color: #88a0c0;">' + tool.desc + '</div>' +
-'</div>';
-card.addEventListener('dragstart', function (e) {
-e.dataTransfer.setData('text/plain', tool.id);
-e.dataTransfer.effectAllowed = 'copy';
-card.style.opacity = '0.5';
-});
-card.addEventListener('dragend', function () {
-card.style.opacity = '1';
-});
-rack.appendChild(card);
-});
-container.appendChild(rack);
-document.body.appendChild(container);
-}
-function bindAgentDropTargets() {
-var agentCards = document.querySelectorAll('.card, [data-agent-id], .agent-item');
-agentCards.forEach(function (el) {
-if (el.dataset.dropBound) return;
-el.dataset.dropBound = 'true';
-el.addEventListener('dragover', function (e) {
-e.preventDefault();
-e.dataTransfer.dropEffect = 'copy';
-el.style.borderColor = '#00f3ff';
-el.style.backgroundColor = 'rgba(0, 243, 255, 0.08)';
-});
-el.addEventListener('dragleave', function () {
-el.style.borderColor = '';
-el.style.backgroundColor = '';
-});
-el.addEventListener('drop', function (e) {
-e.preventDefault();
-el.style.borderColor = '';
-el.style.backgroundColor = '';
-var toolId = e.dataTransfer.getData('text/plain');
-var agentId = el.dataset.agentId || el.id || el.querySelector('.name, strong, b')?.innerText?.trim();
-if (toolId && agentId) {
-assignToolToAgent(agentId, toolId, el);
-}
-});
-});
-}
-function assignToolToAgent(agentId, toolId, agentElement) {
-var tool = TOOLS_CATALOG.find(function (t) { return t.id === toolId; });
-if (!tool) return;
-if (window.OC && window.OC.state) {
-window.OC.state.toolAssignments[agentId] = {
-toolId: tool.id,
-toolName: tool.name,
-assignedAt: Date.now()
-};
-if (typeof window.OC.feed === 'function') {
-window.OC.feed('sys', '🛠️ ' + agentId + ' EQUIPPED ' + tool.name);
-}
-}
-var badge = agentElement.querySelector('.equipped-tool-badge');
-if (!badge) {
-badge = document.createElement('div');
-badge.className = 'equipped-tool-badge';
-badge.style.cssText =
-'font-size: 9px; color: #00f3ff; background: rgba(0, 243, 255, 0.15);' +
-'border: 1px solid #00f3ff; border-radius: 3px; padding: 2px 5px; margin-top: 4px;' +
-'display: inline-flex; align-items: center; gap: 4px;';
-agentElement.appendChild(badge);
-}
-badge.innerHTML = '<span>' + tool.icon + '</span> Equipped: ' + tool.name;
-}
-function init() {
-injectToolRackUI();
-bindAgentDropTargets();
-var observer = new MutationObserver(function () {
-bindAgentDropTargets();
-});
-observer.observe(document.body, {
-childList: true,
-subtree: true
-});
-}
-if (document.readyState === 'loading') {
-document.addEventListener('DOMContentLoaded', init);
-} else {
-init();
-}
-})();
+/* ── [ROSTER+ / FEED+ / OPS+ renderers] ── */
+var STATUS_COLOR={working:'var(--green)',traveling:'var(--cyan)',resting:'var(--amber)',queued:'var(--amber)',blocked:'var(--red)'};
+function up(a){var s=Math.floor((Date.now()-(X.since[a.name]||Date.now()))/1000);var h=Math.floor(s/3600),m=Math.floor(s%3600/60);return (h?h+'h ':'')+m+'m'}
+function paintUptime(){var now=Date.now();OC.state.agents.forEach(function(a){var el=$('up-'+a.id);if(el)el.textContent=up(a)})}
+function rosterHTML(){
+ var destSel='<select class="qa-dest" style="width:auto;padding:4px">'+SHIM_PLANETS.map(function(p){return '<option value="'+p.id+'">'+p.id+'</option>'}).join('')+'</select>';
+ return '<div class="sect">ROSTER+ — live status · uptime · quick dispatch</div>'+
+  OC.state.agents.map(function(a){
+   var st=a.blocked?'blocked':a.status,col=STATUS_COLOR[st]||'var(--dim)';
+   return '<div class="card"><div class="row1"><span class="name"><span style="color:'+col+'">●</span> '+a.persona.em+' '+esc(a.name)+'</span>'+
+    '<span style="font-size:10px;color:'+col+'">'+st.toUpperCase()+' ⏱ <span id="up-'+a.id+'"></span></span></div>'+
+    '<div class="meta">'+a.id+' · '+esc(a.role)+' · 🪐 '+esc(WORLD_NAME(a.planet))+' · ⚡'+Math.round(a.energy)+'% · 🏅'+a.completed+' · 📈'+a.productivity+'% · 🎓LV'+skillLvl(a,a.planet)+(a.traits&&a.traits.length?' · ☣'+esc(a.traits.join('/')):'')+' · ⭐rep '+(X.rep[a.id]||0)+(a.leader?' · 👑':'')+'</div>'+
+    '<div class="bar"><i style="width:'+a.energy+'%;background:var(--green)"></i><i style="width:'+clamp(a.progress/Math.max(a.needTicks,1)*100,0,100)+'%;background:var(--cyan)"></i></div>'+
+    '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">'+
+    '<button style="padding:6px 9px;font-size:10px" data-qa="work" data-id="'+a.id+'">⚙ WORK</button>'+
+    '<button style="padding:6px 9px;font-size:10px" data-qa="go" data-id="'+a.id+'">🚀 GO</button>'+destSel+
+    '<button style="padding:6px 9px;font-size:10px" data-qa="rest" data-id="'+a.id+'">😴 REST</button>'+
+    '<button style="padding:6px 9px;font-size:10px" data-qa="audit" data-id="'+a.id+'">🔍 AUDIT</button>'+
+    '<button style="padding:6px 9px;font-size:10px" data-qa="xfer" data-id="'+a.id+'">🤝 HANDOFF</button></div></div>'}).join('')}
+function WORLD_NAME(id){return (SHIM_PLANETS.filter(function(p){return p.id===id})[0]||{name:id}).name}
+function bindRoster(){
+ paintUptime();
+ $('suiteBody').querySelectorAll('[data-qa]').forEach(function(b){b.onclick=function(){
+  var a=OC.state.agents.filter(function(x){return x.id===b.dataset.id})[0];if(!a)return;
+  var qa=b.dataset.qa;
+  if(qa==='work')OC.execAction(a,'work','');
+  else if(qa==='go'){var sel=b.parentElement.querySelector('.qa-dest');OC.travel(a,sel?sel.value:pick(SHIM_PLANETS).id)}
+  else if(qa==='rest'){a.status='resting';a.task='Resting';OC.feed('sys','😴 '+a.name+' standing down to recharge')}
+  else if(qa==='audit')OC.audit();
+  else if(qa==='xfer'){var to=prompt('Handoff "'+a.task+'" to agent ID (e.g. A-003):');if(to)transferTask(a.id,to)}
+ }})}
+function feedHTML(){
+ var counts={};['sys','flag','trade','sale','asset'].forEach(function(t){counts[t]=OC.state.feed.filter(function(e){return e.type===t}).length});
+ var q=X.feedSearch.toLowerCase();
+ var list=OC.state.feed.filter(function(e){return (!X.feedFilter[e.type])&&(!q||e.text.toLowerCase().indexOf(q)>-1)});
+ return '<div class="sect">FEED+ — '+list.length+' shown · '+OC.state.feed.length+' total</div>'+
+  '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">'+
+  ['sys','flag','trade','sale','asset'].map(function(t){return '<button style="padding:5px 9px;font-size:10px;'+(X.feedFilter[t]?'opacity:.4':'')+'" data-ft="'+t+'">'+t+' ('+counts[t]+')</
 </body>
 </html>
