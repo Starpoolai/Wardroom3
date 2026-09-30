@@ -934,5 +934,228 @@ function feedHTML(){
  return '<div class="sect">FEED+ — '+list.length+' shown · '+OC.state.feed.length+' total</div>'+
   '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px">'+
   ['sys','flag','trade','sale','asset'].map(function(t){return '<button style="padding:5px 9px;font-size:10px;'+(X.feedFilter[t]?'opacity:.4':'')+'" data-ft="'+t+'">'+t+' ('+counts[t]+')</
+'button>'}).join('')+
+  '<input id="feedSearch" placeholder="🔍 filter feed…" value="'+esc(X.feedSearch)+'" style="width:100%;padding:6px;margin:6px 0;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:8px;font-size:11px">'+
+  '<div class="meta">pause: <button id="feedPause" style="padding:4px 8px;font-size:10px">'+(X.feedPause?'▶ RESUME':'⏸ PAUSE')+'</button></div>'+
+  OC.state.feed.slice(-120).reverse().map(function(e){
+   return '<div class="card" style="border-left:3px solid '+(e.type==='flag'?'var(--red)':e.type==='sale'?'var(--green)':e.type==='trade'?'var(--amber)':'var(--cyan)')+'">'+
+    '<span style="font-size:9px;color:var(--dim)">['+esc(e.ts||'')+'] '+e.type.toUpperCase()+'</span><div style="font-size:12px;white-space:pre-wrap">'+ebr(e.text)+'</div></div>'}).join('')}
+function bindFeed(){
+ $('feedSearch').oninput=function(){X.feedSearch=this.value;renderSuite()};
+ $('feedPause').onclick=function(){X.feedPause=!X.feedPause;log('sys','Feed '+(X.feedPause?'paused':'resumed'));renderSuite()};
+ $('suiteBody').querySelectorAll('[data-ft]').forEach(function(b){b.onclick=function(){X.feedFilter[b.dataset.ft]=!X.feedFilter[b.dataset.ft];renderSuite()}})}
+/* ── [CHAT TAB] ── */
+function chatHTML(){
+ return '<div class="sect">CHAT+ — suite agents · history · command autocomplete</div>'+
+  SUITE.map(function(s){
+   return '<div class="card"><div class="row1"><span class="name">'+s.persona.em+' '+s.name+'</span>'+
+    '<span style="font-size:10px;color:var(--dim)">'+s.persona.name+' · 🪐 '+WORLD_NAME(s.planetId)+'</span></div>'+
+    '<div id="chat-'+s.key+'" style="max-height:180px;overflow-y:auto;margin:6px 0">'+chatFor(s.key).map(function(m){return '<div class="msg '+m.who+'">'+(m.who==='agent'?'<div class="who">'+esc(m.n)+'</div>':'')+ebr(m.text)+'</div>'}).join('')+'</div>'+
+    '<div id="sug-'+s.key+'"></div>'+
+    '<div style="display:flex;gap:6px"><input id="in-'+s.key+'" placeholder="Message '+s.name+'… (↑/↓ history)" style="flex:1;padding:7px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:8px;font-size:12px">'+
+    '<button style="padding:7px 12px;font-size:11px" data-send="'+s.key+'">➤</button>'+
+    '<button style="padding:7px 9px;font-size:11px" title="reroll quirks" data-quirk="'+s.key+'">🎲</button></div></div>'}).join('')}
+function bindChat(){
+ SUITE.forEach(function(s){
+  paintChat(s.key);renderSuggest(s.key,'');
+  var inp=$('in-'+s.key);
+  inp.onkeydown=function(e){
+   if(e.key==='Enter')suiteSend(s.key);
+   else if(e.key==='ArrowUp'){e.preventDefault();histNav(s.key,-1)}
+   else if(e.key==='ArrowDown'){e.preventDefault();histNav(s.key,1)}};
+  $('suiteBody').querySelector('[data-send="'+s.key+'"]').onclick=function(){suiteSend(s.key)};
+  $('suiteBody').querySelector('[data-quirk="'+s.key+'"]').onclick=function(){rollQuirks(s.key);renderSuite()}})}
+/* ── [VAULT TAB — keyring v2 UI] ── */
+var PLATFORMS=['gemini','cashapp','venmo','paypal','gumroad','etsy','x','instagram','tiktok','youtube','github','telegram'];
+function vaultHTML(){
+ if(!X.vault.open){
+  return '<div class="sect">VAULT — AES-256-GCM keyring (locked)</div>'+
+   '<div class="card"><input id="vp" type="password" placeholder="master passphrase" style="width:100%;padding:8px;margin-bottom:6px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:8px">'+
+   '<button id="vUnlock" style="padding:7px 12px;font-size:11px">🔓 UNLOCK</button> '+
+   '<button id="vSetup" style="padding:7px 12px;font-size:11px">🆕 INITIALIZE KEYRING</button>'+
+   '<div class="meta">Keys are stored device-side only (PBKDF2 150k · AES-GCM 256). Nothing leaves this browser except API calls you trigger.</div></div>'}
+ return '<div class="sect">VAULT — '+X.vault.data.creds.length+' credentials · unlocked</div>'+
+  '<div class="card"><div class="row1"><b>Add credential</b></div>'+
+  '<select id="vcPlat" style="padding:6px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:11px">'+PLATFORMS.map(function(p){return '<option>'+p+'</option>'}).join('')+'</select>'+
+  '<input id="vcLabel" placeholder="label (optional)" style="padding:6px;margin-left:4px;width:90px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:11px">'+
+  '<input id="vcScopes" placeholder="scopes csv" style="padding:6px;margin-left:4px;width:90px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:11px">'+
+  '<button id="vcAdd" style="padding:6px 10px;font-size:11px">＋ CREDENTIAL</button></div>'+
+  X.vault.data.creds.map(function(c){
+   return '<div class="card"><div class="row1"><span class="name">🔑 '+esc(c.platform)+' · '+esc(c.label||'—')+'</span><span style="font-size:10px;color:'+ (c.status==='active'?'var(--green)':'var(--red)')+'">'+c.status+'</span></div>'+
+    '<div class="meta">'+c.id+' · '+c.logins.length+' login(s) · scopes: '+esc(c.scopes.join(',')||'—')+'</div>'+
+    c.logins.map(function(l){return '<div class="meta" style="color:#9fd8ff">👤 '+esc(l.username)+(l.mfa?' · 🔒mfa':'')+'</div>'}).join('')+
+    '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+
+    '<input id="lu-'+c.id+'" placeholder="username" style="padding:5px;width:100px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:10px">'+
+    '<input id="ls-'+c.id+'" type="password" placeholder="secret/key" style="padding:5px;width:110px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:10px">'+
+    '<button style="padding:5px 9px;font-size:10px" data-login="'+c.id+'">＋ LOGIN</button>'+
+    '<button style="padding:5px 9px;font-size:10px" data-delcred="'+c.id+'">🗑 REVOKE</button></div></div>'}).join('')+
+  '<div class="meta">🧠 Gemini model: '+esc(X.cfg.model)+' · key sourced live from vault</div>'}
+function bindVault(){
+ if(!X.vault.open){
+  $('vUnlock').onclick=async function(){var ok=await vaultUnlock($('vp').value);if(ok)renderSuite();else log('flag','❌ E_VAULT_KEY: wrong passphrase')};
+  $('vSetup').onclick=async function(){var p=$('vp').value;if(!p||p.length<6)return log('flag','⚠ passphrase ≥ 6 chars');await vaultSetup(p);renderSuite()};
+  return}
+ $('vcAdd').onclick=function(){var id=addCred($('vcPlat').value,$('vcLabel').value.trim(),$('vcScopes').value);if(id==='E_VAULT_LOCKED')log('flag','🚫 vault locked');renderSuite()};
+ $('suiteBody').querySelectorAll('[data-login]').forEach(function(b){b.onclick=function(){
+  var r=addLogin(b.dataset.login,$('lu-'+b.dataset.login).value.trim(),$('ls-'+b.dataset.login).value);
+  if(r!=='ok')log('flag','⚠ '+r);renderSuite()}});
+ $('suiteBody').querySelectorAll('[data-delcred]').forEach(function(b){b.onclick=function(){
+  delCred(b.dataset.delcred);log('sys','🗑 credential revoked');audit('VAULT','CRED_REVOKE','pass',b.dataset.delcred);renderSuite()}})}
+/* ── [FINANCE TAB] ── */
+function financeHTML(){
+ var b=balance();
+ return '<div class="sect">FINANCE — confirmed balance '+fmt(b)+' · '+ledger.length+' tx</div>'+
+  '<div class="card"><div class="row1"><b>New transaction</b></div>'+
+  '<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">'+
+  '<select id="txType" style="padding:6px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:11px"><option>expense</option><option>income</option></select>'+
+  '<select id="txRail" style="padding:6px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:11px"><option>internal</option><option>cashapp</option><option>venmo</option><option>zelle</option></select>'+
+  '<input id="txAmt" type="number" placeholder="$" style="padding:6px;width:70px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:11px">'+
+  '<input id="txAgent" placeholder="agent" value="MIDAS" style="padding:6px;width:80px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:11px">'+
+  '<input id="txHandle" placeholder="@handle" style="padding:6px;width:90px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:11px">'+
+  '<input id="txMemo" placeholder="memo" style="padding:6px;width:110px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:11px">'+
+  '<button id="txGo" style="padding:6px 10px;font-size:11px">→ CREATE</button></div></div>'+
+  ledger.slice(-15).reverse().map(function(t){
+   var col=t.status==='confirmed'?'var(--green)':t.status==='pending'?'var(--amber)':t.status==='failed'||t.status==='flagged'?'var(--red)':'var(--cyan)';
+   return '<div class="card"><div class="row1"><span>'+t.type.toUpperCase()+' '+fmt(t.amount)+' · '+esc(t.rail)+'</span><span style="font-size:10px;color:'+col+'">'+t.status.toUpperCase()+'</span></div>'+
+    '<div class="meta">'+t.id+' · '+esc(t.agentId)+' · '+esc(t.memo||'—')+' · '+new Date(t.ts).toLocaleTimeString()+'</div>'+
+    (t.link?'<div class="meta">💳 <a href="'+esc(t.link)+'" target="_blank" style="color:var(--cyan)">'+esc(t.link)+'</a></div>':'')+
+    (t.error?'<div class="meta" style="color:var(--red)">⚠ '+esc(t.error.code)+' — '+esc(t.error.message)+'</div>':'')+
+    '<div style="display:flex;gap:5px;margin-top:6px">'+(t.status==='pending'?'<button style="padding:4px 8px;font-size:10px" data-tx="'+t.id+'" data-act="approve">✅ APPROVE</button>':'')+
+    (t.status==='approved'||t.status==='flagged'?'<button style="padding:4px 8px;font-size:10px" data-tx="'+t.id+'" data-act="confirm">💰 CONFIRM</button>':'')+
+    (t.error&&t.error.retryable?'<button style="padding:4px 8px;font-size:10px" data-tx="'+t.id+'" data-act="retry">↻ RETRY</button>':'')+
+    (t.status!=='failed'?'<button style="padding:4px 8px;font-size:10px" data-tx="'+t.id+'" data-act="fail">✖ FAIL</button>':'')+'</div></div>'}).join('')+
+  '<div class="sect">PRODUCTS — '+X.products.length+' listed · autoCap '+fmt(X.cfg.autoCap)+'</div>'+
+  X.products.slice(-12).reverse().map(function(p){
+   return '<div class="card"><div class="row1"><span class="name">'+esc(p.title)+'</span><span style="font-size:11px;color:var(--green)">'+fmt(p.price)+'</span></div>'+
+    '<div class="meta">'+p.id+' · '+esc(p.agentId)+' · '+p.type+' · '+(p.compliance&&p.compliance.flags.length?'⚠ '+p.compliance.flags.join(','):'✅ compliance clean')+'</div>'+
+    '<div style="display:flex;gap:5px;margin-top:6px;flex-wrap:wrap">'+
+    ['x','instagram','tiktok','etsy','gumroad'].map(function(pf){return '<button style="padding:4px 8px;font-size:10px" data-sell="'+p.id+'" data-pf="'+pf+'">📦 '+pf+'</button>'}).join('')+
+    '<button style="padding:4px 8px;font-size:10px" data-dlprod="'+p.id+'">⬇ .md</button></div></div>'}).join('')}
+function bindFinance(){
+ $('txGo').onclick=newTx;
+ $('suiteBody').querySelectorAll('[data-tx]').forEach(function(b){b.onclick=function(){txAction(b.dataset.tx,b.dataset.act)}});
+ $('suiteBody').querySelectorAll('[data-sell]').forEach(function(b){b.onclick=function(){sellProduct(b.dataset.sell,b.dataset.pf)}});
+ $('suiteBody').querySelectorAll('[data-dlprod]').forEach(function(b){b.onclick=function(){
+  var p=X.products.filter(function(x){return x.id===b.dataset.dlprod})[0];if(p)dl(p.id+'.md','# '+p.title+'\n\n'+p.body)}})}
+/* ── [OPS+ TAB — tools · grants · quirks · handoff console] ── */
+function opsHTML(){
+ return '<div class="sect">OPS+ — tool rack · grants · directives</div>'+
+  TOOLS_RACK.map(function(t){
+   var h=toolHolder(t.id),ha=OC.state.agents.filter(function(a){return a.id===h})[0];
+   return '<div class="card"><div class="row1"><span class="name">'+t.icon+' '+t.name+'</span><span style="font-size:10px;color:var(--amber)">'+(ha?'→ '+esc(ha.name):'unassigned')+'</span></div>'+
+    '<div class="meta">'+t.desc+'</div><div class="meta">holder: '+esc(h||'—')+'</div>'+
+    '<select id="toolSel-'+t.id+'" style="padding:5px;margin-top:5px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:10px">'+
+    '<option value="">— unassign —</option>'+OC.state.agents.map(function(a){return '<option value="'+a.id+'"'+(h===a.id?' selected':'')+'>'+esc(a.name)+'</option>'}).join('')+'</select></div>'}).join('')+
+  '<div class="sect">QUIRKS</div>'+
+  SUITE.map(function(s){var q=X.quirks[s.key]||[];
+   return '<div class="card"><div class="row1"><span>'+s.persona.em+' '+s.name+'</span><span style="font-size:10px;color:var(--dim)">'+esc(q.join(' + ')||'—')+'</span></div>'+
+   '<button style="padding:5px 9px;font-size:10px" data-qr="'+s.key+'">🎲 REROLL</button></div>'}).join('')+
+  '<div class="sect">HANDOFF CONSOLE</div>'+
+  '<div class="card"><div style="display:flex;gap:5px;flex-wrap:wrap">'+
+  '<select id="hfFrom" style="padding:5px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:10px">'+OC.state.agents.map(function(a){return '<option value="'+a.id+'">'+esc(a.name)+'</option>'}).join('')+'</select>→'+
+  '<select id="hfTo" style="padding:5px;background:#0b1526;border:1px solid var(--line);color:#cfe8ff;border-radius:6px;font-size:10px">'+OC.state.agents.map(function(a){return '<option value="'+a.id+'">'+esc(a.name)+'</option>'}).join('')+'</select>'+
+  '<button id="hfGo" style="padding:5px 10px;font-size:10px">🤝 TRANSFER TASK</button></div></div>'}
+function bindOps(){
+ TOOLS_RACK.forEach(function(t){var s=$('toolSel-'+t.id);if(s)s.onchange=function(){assignTool(t.id,s.value||null)}});
+ $('suiteBody').querySelectorAll('[data-qr]').forEach(function(b){b.onclick=function(){rollQuirks(b.dataset.qr);renderSuite()}});
+ $('hfGo').onclick=function(){transferTask($('hfFrom').value,$('hfTo').value);renderSuite()}}
+/* ── [COMMITTEE — batched Director, fires every 5 ticks] ── */
+var DIR={tick:0,decisions:[],busy:false};
+async function directorCycle(){
+ if(DIR.busy)return;DIR.busy=true;
+ try{
+  var s=SUITE[0];
+  var summary=OC.state.agents.map(function(a){return a.name+'@'+a.planet+' '+a.status+' e'+Math.round(a.energy)}).join('; ');
+  var res=await geminiJSON(sysFor(s),
+   'You are the Committee Director. Fleet status: '+summary+'. Inventory: '+JSON.stringify(ECON.inventory())+'. Credits: '+OC.state.credits+'.',
+   {type:'OBJECT',properties:{directive:{type:'STRING'},focus_agent:{type:'STRING'},reason:{type:'STRING'}},required:['directive']});
+  if(res&&res.directive){
+   DIR.decisions.unshift({ts:new Date().toLocaleTimeString(),d:String(res.directive).slice(0,200),agent:res.focus_agent||'—',why:res.reason||''});
+   if(DIR.decisions.length>20)DIR.decisions.pop();
+   OC.feed('committee','🏛 DIRECTOR: '+res.directive);log('committee','🏛 '+res.directive)}
+ }catch(e){log('flag','⚠ DIRECTOR '+((e&&e.message)||e))}
+ DIR.busy=false;if(X.tab==='committee')renderSuite()}
+function tickDirector(){DIR.tick++;if(DIR.tick%5===0)q2(directorCycle)}
+var _tickHook=setInterval(tickDirector,2000);
+function committeeHTML(){
+ return '<div class="sect">COMMITTEE — Director cycles every 5 ticks · '+DIR.decisions.length+' directives</div>'+
+  (DIR.decisions.length?DIR.decisions.map(function(d){
+   return '<div class="card"><div class="row1"><span class="name">🏛 '+esc(d.d)+'</span><span style="font-size:9px;color:var(--dim)">'+d.ts+'</span></div>'+
+   '<div class="meta">focus: '+esc(d.agent)+(d.why?' · '+esc(d.why):'')+'</div></div>'}).join(''):
+  '<div class="meta">No directives yet — Director batch will fire on the next 5-tick boundary (needs a gemini credential in VAULT).</div>')+
+  '<button id="dirNow" style="padding:6px 10px;font-size:11px;margin-top:8px">⚡ RUN CYCLE NOW</button>'}
+function bindCommittee(){var b=$('dirNow');if(b)b.onclick=function(){q2(directorCycle)}}
+/* ── [APPROVE — owner permission gate] ── */
+function approveHTML(){
+ var pend=ledger.filter(function(t){return t.status==='pending'});
+ var overCap=X.products.filter(function(p){return p.price>X.cfg.autoCap&&p.status==='listed'});
+ return '<div class="sect">APPROVE GATE — '+pend.length+' pending tx · '+overCap.length+' over-cap products</div>'+
+  '<div class="meta">Owner tap required for: tx over '+fmt(X.cfg.autoCap)+' · all rail transfers · product publication over cap.</div>'+
+  pend.map(function(t){
+   return '<div class="card"><div class="row1"><span>'+t.type.toUpperCase()+' '+fmt(t.amount)+' · '+esc(t.rail)+'</span><span style="font-size:10px;color:var(--amber)">PENDING</span></div>'+
+    '<div class="meta">'+t.id+' · '+esc(t.agentId)+' · '+esc(t.memo||'')+'</div>'+
+    '<div style="display:flex;gap:5px;margin-top:6px"><button style="padding:5px 9px;font-size:10px" data-tx="'+t.id+'" data-act="approve">✅ GRANT</button><button style="padding:5px 9px;font-size:10px" data-tx="'+t.id+'" data-act="fail">✖ DENY</button></div></div>'}).join('')+
+  '<div class="sect">OVER-CAP PRODUCTS</div>'+
+  (overCap.length?overCap.map(function(p){
+   return '<div class="card"><div class="row1"><span>'+esc(p.title)+'</span><span style="font-size:11px;color:var(--amber)">'+fmt(p.price)+' &gt; cap</span></div>'+
+   '<button style="padding:5px 9px;font-size:10px" data-cap="'+p.id+'">🔓 RELEASE TO MARKET</button></div>'}).join(''):'<div class="meta">Nothing over cap.</div>')}
+function bindApprove(){
+ $('suiteBody').querySelectorAll('[data-tx]').forEach(function(b){b.onclick=function(){txAction(b.dataset.tx,b.dataset.act);renderSuite()}});
+ $('suiteBody').querySelectorAll('[data-cap]').forEach(function(b){b.onclick=function(){
+  var p=X.products.filter(function(x){return x.id===b.dataset.cap})[0];if(!p)return;
+  p.status='released';save('products');log('sale','🔓 '+p.title+' released ('+fmt(p.price)+')');audit('GATE','R_CAP','pass',p.id);renderSuite()}})}
+/* ── [ARCHIVE — 25-asset knowledge base + ebook sync] ── */
+var ARCHIVE=['Agent Autonomy Patterns','M2M Exchange Mechanics','Supply-Chain Economy Design','Trend Array Forecasting','Data Pack Provenance','Content IP Lifecycle','Persona Weight Tuning','Demand Signal Processing','Compliance Rulebook R1–R9','Disclosure Law Basics','Digital Product Pricing','Ebook Production Pipeline','Handoff Protocol Standards','Audit Trail Best Practices','Reputation Systems','Trait Dynamics: Burnout','Supply Block Recovery','Tool Rack Economics','Vault Security (AES-GCM)','Rate Limiting & Backoff','Orbital Flight Math','Fleet Capacity Planning','Committee Governance','Owner Permission Gates','Export & Fulfillment Flow'].map(function(t,i){return{id:'KB-'+(i+1),title:t,note:'Foundational asset — synthesized from fleet operations history.'}});
+function archiveHTML(){
+ return '<div class="sect">ARCHIVE — '+ARCHIVE.length+' foundational assets · ebook sync</div>'+
+  ARCHIVE.map(function(k){return '<div class="card"><div class="row1"><span class="name">📘 '+k.title+'</span><span style="font-size:9px;color:var(--dim)">'+k.id+'</span></div><div class="meta">'+k.note+'</div></div>'}).join('')+
+  '<div class="sect">EBOOK SYNC — '+X.products.filter(function(p){return p.type==='ebook'}).length+' ebooks</div>'+
+  '<button id="syncAll" style="padding:7px 12px;font-size:11px;margin-bottom:8px">⬇ SYNC ALL DELIVERABLES (.md)</button>'+
+  '<div class="meta">Exports every product as Markdown for your GitHub fulfillment pipeline.</div>'}
+function bindArchive(){
+ $('syncAll').onclick=function(){
+  var md='# ORBITAL COMMAND — DELIVERABLE PACKAGE\n\n_Generated '+new Date().toISOString()+'_\n\n'+X.products.map(function(p){return '## '+p.title+' ('+p.id+' · '+fmt(p.price)+')\n\n'+p.body+'\n\n---\n'}).join('\n')||'# No products yet';
+  dl('orbital-command-deliverables.md',md);log('export','⬇ deliverables package exported')}()}
+/* ── [RENDER SUITE — tab dispatcher] ── */
+var SUITE_TABS=[['roster','👥 ROSTER+'],['feed','📡 FEED+'],['chat','💬 CHAT'],['vault','🔐 VAULT'],['finance','💰 FINANCE'],['ops','🧰 OPS+'],['map','🪐 MAP+'],['committee','🏛 COMMITTEE'],['approve','✅ APPROVE'],['archive','📚 ARCHIVE']];
+function renderSuite(){
+ var body=$('suiteBody');if(!body)return;
+ var nav=$('suiteNav');
+ if(nav)nav.innerHTML=SUITE_TABS.map(function(t){return '<button style="padding:6px 8px;font-size:10px'+(X.tab===t[0]?';background:rgba(0,229,255,.15);color:#00e5ff':'')+'" data-tab="'+t[0]+'">'+t[1]+'</button>'}).join('');
+ var map={roster:[rosterHTML,bindRoster],feed:[feedHTML,bindFeed],chat:[chatHTML,bindChat],vault:[vaultHTML,bindVault],finance:[financeHTML,bindFinance],ops:[opsHTML,bindOps],map:[mapHTML,bindMap],committee:[committeeHTML,bindCommittee],approve:[approveHTML,bindApprove],archive:[archiveHTML,bindArchive]};
+ var f=map[X.tab]||map.roster;
+ body.innerHTML=f[0]();f[1]();
+ if(nav)nav.querySelectorAll('[data-tab]').forEach(function(b){b.onclick=function(){X.tab=b.dataset.tab;save('tab')?0:0;X.tab=b.dataset.tab;SS('OC7_TAB',X.tab);renderSuite()}});
+ paintUptime()}
+/* ── [CSS INJECTION] ── */
+(function(){if($('oc6css'))return;var s=document.createElement('style');s.id='oc6css';
+ s.textContent='.msg{padding:6px 8px;margin:4px 0;border-radius:8px;font-size:12px;line-height:1.4}'+
+ '.msg.user{background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.2);color:#cfe8ff}'+
+ '.msg.agent{background:rgba(34,229,140,.06);border:1px solid rgba(34,229,140,.2);color:#d9ffe9}'+
+ '.msg .who{font-size:9px;color:#ffb020;margin-bottom:2px;letter-spacing:.5px}'+
+ '.card{background:rgba(11,21,38,.7);border:1px solid rgba(27,42,74,.9);border-radius:10px;padding:8px;margin:6px 0}'+
+ '.row1{display:flex;justify-content:space-between;align-items:center;gap:6px}'+
+ '.name{font-weight:700;color:#e1f0ff;font-size:12px}'+
+ '.meta{font-size:10px;color:#7fa3c9;margin-top:3px}'+
+ '.sect{font-size:10px;letter-spacing:1px;color:#00e5ff;margin:10px 0 4px;text-transform:uppercase}'+
+ '.bar{height:5px;background:rgba(27,42,74,.8);border-radius:3px;overflow:hidden;display:flex;margin-top:5px}'+
+ '.bar i{display:block;height:100%;transition:width .3s}';
+ document.head.appendChild(s)})();
+/* ── [BOOT] ── */
+ensureAgents();
+if(!X.chats.fin||!X.chats.fin.length)SUITE.forEach(function(s){X.chats[s.key]=[{who:'agent',n:s.name,text:s.persona.em+' '+s.persona.line+' Ask me for status, a product, or a price check.'}]});
+setInterval(function(){if(!X.feedPause)paintUptime()},1000);
+OC.suiteRender=renderSuite;
+OC.renderSuite=renderSuite;
+window.OC7={X:X,TOOLS_RACK:TOOLS_RACK,PLATFORMS:PLATFORMS,SUITE:SUITE,ARCHIVE:ARCHIVE,
+ vault:{setup:vaultSetup,unlock:vaultUnlock,addCred:addCred,addLogin:addLogin,delCred:delCred,hasCred:hasCred},
+ finance:{balance:balance,newTx:newTx,txAction:txAction,sellProduct:sellProduct},
+ chat:{send:suiteSend,render:renderSuggest},
+ ops:{assignTool:assignTool,transferTask:transferTask,grantTool:grantTool,rollQuirks:rollQuirks},
+ director:{cycle:directorCycle,decisions:function(){return DIR.decisions}},
+ render:renderSuite,log:log,audit:audit};
+window.OC8=window.OC7;
+console.log('%c[OC6] V6 expansion online — 10 tabs · keyring · director · map engine','color:#00e5ff');
+});
 </body>
 </html>
